@@ -110,7 +110,7 @@ function App() {
         await saveJulesKey(appStatus.token, debouncedJulesKey);
         setJulesSaveStatus("saved");
         setTimeout(() => setJulesSaveStatus("idle"), 3000);
-      } catch (e) {
+      } catch (_e) {
         setJulesSaveStatus("error");
       }
     };
@@ -128,7 +128,7 @@ function App() {
         await saveExaKey(appStatus.token, debouncedExaKey);
         setExaSaveStatus("saved");
         setTimeout(() => setExaSaveStatus("idle"), 3000);
-      } catch (e) {
+      } catch (_e) {
         setExaSaveStatus("error");
       }
     };

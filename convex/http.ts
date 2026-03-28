@@ -94,7 +94,7 @@ http.route({
       });
 
       return corsResponse({ success: true });
-    } catch (error) {
+    } catch (_error) {
       return corsResponse({ error: "Error saving key" }, 500);
     }
   }),
@@ -123,7 +123,7 @@ http.route({
       });
 
       return corsResponse({ success: true });
-    } catch (error) {
+    } catch (_error) {
       return corsResponse({ error: "Error saving key" }, 500);
     }
   }),

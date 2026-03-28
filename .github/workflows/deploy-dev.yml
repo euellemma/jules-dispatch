@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: dev
-      url: ${{ vars.CONVEX_DEV_SITE_URL }}/settings
+      url: https://${{ vars.CONVEX_DEV_DEPLOYMENT }}.convex.site/settings
     steps:
       - uses: actions/checkout@v4
 
@@ -44,10 +44,10 @@ jobs:
         run: npx @convex-dev/static-hosting upload --dist ./web/dist --deployment ${{ vars.CONVEX_DEV_DEPLOYMENT }}
         env:
           CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEV_DEPLOY_KEY }}
-          CONVEX_URL: ${{ vars.CONVEX_DEV_URL }}
+          CONVEX_URL: https://${{ vars.CONVEX_DEV_DEPLOYMENT }}.convex.cloud
 
       - name: Verify deployment
         run: |
           sleep 5
-          curl -sf "${{ vars.CONVEX_DEV_SITE_URL }}/api/health" || exit 1
+          curl -sf "https://${{ vars.CONVEX_DEV_DEPLOYMENT }}.convex.site/api/health" || exit 1
           echo "Dev deployment verified"

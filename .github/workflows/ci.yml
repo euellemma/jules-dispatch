@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [develop]
   pull_request:
-    branches: [main]
+    branches: [develop]
 
 permissions:
   contents: read
@@ -107,7 +107,7 @@ jobs:
       - name: Health check (dev deployment)
         run: |
           for i in $(seq 1 30); do
-            if curl -sf "${{ vars.CONVEX_DEV_SITE_URL }}/api/health" > /dev/null 2>&1; then
+            if curl -sf "https://${{ vars.CONVEX_DEV_DEPLOYMENT }}.convex.site/api/health" > /dev/null 2>&1; then
               echo "Dev deployment is healthy"
               exit 0
             fi
@@ -116,8 +116,6 @@ jobs:
           done
           echo "Dev deployment did not become healthy"
           exit 1
-        env:
-          CONVEX_DEV_SITE_URL: ${{ vars.CONVEX_DEV_SITE_URL }}
 
       - name: Download build artifact
         uses: actions/download-artifact@v4
