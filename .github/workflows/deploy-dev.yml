@@ -1,0 +1,53 @@
+name: Deploy to Dev
+
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: true
+
+jobs:
+  deploy-dev:
+    name: Deploy to Dev
+    runs-on: ubuntu-latest
+    environment:
+      name: dev
+      url: ${{ vars.CONVEX_DEV_SITE_URL }}/settings
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          cd web && npm ci
+
+      - name: Deploy Convex backend to dev
+        run: npx convex deploy --yes
+        env:
+          CONVEX_DEPLOYMENT: ${{ vars.CONVEX_DEV_DEPLOYMENT }}
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEV_DEPLOY_KEY }}
+
+      - name: Build web
+        run: npm run build
+
+      - name: Upload static files to dev
+        run: npx @convex-dev/static-hosting upload --dist ./web/dist --deployment ${{ vars.CONVEX_DEV_DEPLOYMENT }}
+        env:
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_DEV_DEPLOY_KEY }}
+          CONVEX_URL: ${{ vars.CONVEX_DEV_URL }}
+
+      - name: Verify deployment
+        run: |
+          sleep 5
+          curl -sf "${{ vars.CONVEX_DEV_SITE_URL }}/api/health" || exit 1
+          echo "Dev deployment verified"

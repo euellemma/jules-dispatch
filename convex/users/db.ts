@@ -1,0 +1,371 @@
+import { internalMutation, internalQuery } from "../_generated/server";
+import { v } from "convex/values";
+import { components, internal } from "../_generated/api";
+import { createThread } from "@convex-dev/agent";
+
+export const getOrCreateUserThread = internalMutation({
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, { telegramChatId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", telegramChatId))
+      .first();
+
+    if (user) {
+      return user.threadId;
+    }
+
+    const threadId = await createThread(ctx, components.agent);
+    await ctx.db.insert("users", {
+      telegramChatId,
+      threadId: threadId,
+    });
+    return threadId;
+  }
+});
+
+export const clearUserThread = internalMutation({
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, { telegramChatId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", telegramChatId))
+      .first();
+
+    if (user) {
+      const threadId = await createThread(ctx, components.agent);
+      await ctx.db.patch(user._id, { threadId: threadId });
+      return true;
+    }
+    return false;
+  }
+});
+
+export const getChatIdForThread = internalQuery({
+  args: { threadId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.query("users")
+      .withIndex("by_telegramChatId")
+      .filter(q => q.eq(q.field("threadId"), args.threadId))
+      .first();
+    return user?.telegramChatId;
+  }
+});
+
+export const getProviderConfig = internalQuery({
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
+      .first();
+    return {
+      config: user?.providerConfig || null,
+      julesApiKey: user?.julesApiKey,
+      exaApiKey: user?.exaApiKey,
+    };
+  },
+});
+
+export const updateJulesApiKey = internalMutation({
+  args: { telegramChatId: v.string(), apiKey: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
+      .first();
+    if (user) {
+      await ctx.db.patch(user._id, { julesApiKey: args.apiKey });
+    }
+  },
+});
+
+export const updateExaApiKey = internalMutation({
+  args: { telegramChatId: v.string(), apiKey: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
+      .first();
+    if (user) {
+      await ctx.db.patch(user._id, { exaApiKey: args.apiKey });
+    }
+  },
+});
+
+export const updateProviderConfig = internalMutation({
+  args: {
+    telegramChatId: v.string(),
+    endpoint: v.string(),
+    model: v.string(),
+    apiKey: v.string(),
+    sdkType: v.union(
+      v.literal("openai"),
+      v.literal("anthropic"),
+      v.literal("google"),
+      v.literal("openai-compatible"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
+      .first();
+
+    const config = {
+      endpoint: args.endpoint,
+      model: args.model,
+      apiKey: args.apiKey,
+      sdkType: args.sdkType,
+    };
+
+    if (user) {
+      await ctx.db.patch(user._id, { providerConfig: config });
+      
+      // Auto-recovery: If there are pending messages, trigger the queue
+      if (user.pendingMessageText) {
+        await ctx.scheduler.runAfter(0, internal.api.telegram.sendChatMessage, {
+          chatId: args.telegramChatId,
+          message: "🔄 <b>Settings Updated!</b> Resuming your last request...",
+        });
+        await ctx.scheduler.runAfter(0, internal.api.telegram.processMessageQueue, {
+          threadId: user.threadId,
+          telegramChatId: args.telegramChatId,
+        });
+      }
+    } else {
+      const threadId = await createThread(ctx, components.agent);
+      await ctx.db.insert("users", {
+        telegramChatId: args.telegramChatId,
+        threadId,
+        providerConfig: config,
+      });
+    }
+  },
+});
+
+export const createAuthSession = internalMutation({
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, args) => {
+    const token = "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
+      (
+        parseInt(c, 10) ^
+        (crypto.getRandomValues(new Uint8Array(1))[0] ?? 0) & (15 >> (parseInt(c, 10) / 4))
+      ).toString(16)
+    );
+    const expiresAt = Date.now() + 1000 * 60 * 60 * 24; // 24 hours
+
+    await ctx.db.insert("authSessions", {
+      token,
+      telegramChatId: args.telegramChatId,
+      expiresAt,
+    });
+
+    return token;
+  },
+});
+
+export const validateAuthSession = internalQuery({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("authSessions")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
+
+    if (!session || session.expiresAt < Date.now()) {
+      return null;
+    }
+    return session.telegramChatId;
+  },
+});
+
+export const consumeAuthSession = internalMutation({
+  args: { token: v.string() },
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("authSessions")
+      .withIndex("by_token", (q) => q.eq("token", args.token))
+      .first();
+
+    if (!session || session.expiresAt < Date.now()) {
+      return null;
+    }
+
+    await ctx.db.delete(session._id);
+    return session.telegramChatId;
+  },
+});
+
+/**
+ * Cycle the thread for a user.
+ * Optional: Preserve observational memory by linking it to the new threadId.
+ */
+export const cycleUserThread = internalMutation({
+  args: { telegramChatId: v.string(), preserveMemory: v.boolean() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
+      .unique();
+
+    if (!user) return null;
+
+    const oldThreadId = user.threadId;
+    const newThreadId = await createThread(ctx, components.agent);
+
+    // 1. Update user record
+    await ctx.db.patch(user._id, { 
+      threadId: newThreadId,
+      isAgentRunning: false,
+      pendingMessageText: undefined
+    });
+
+    // 2. Handle Observational Memory
+    const memory = await ctx.db
+      .query("observational_memory")
+      .withIndex("by_threadId", (q) => q.eq("threadId", oldThreadId))
+      .first();
+
+    if (memory && args.preserveMemory) {
+      await ctx.db.patch(memory._id, { threadId: newThreadId });
+    } else if (memory) {
+      await ctx.db.delete(memory._id);
+    }
+
+    return { oldThreadId, newThreadId };
+  },
+});
+
+/**
+ * Completely wipe all data for a user except their providerConfig.
+ */
+export const nukeUserData = internalMutation({
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
+      .unique();
+
+    if (!user) return;
+
+    // We'll return IDs to be deleted from storage/external via an action later
+    const oldThreadId = user.threadId;
+
+    // 1. Delete internal tables
+    const tasks = await ctx.db.query("tasks").withIndex("by_thread", q => q.eq("threadId", oldThreadId)).collect();
+    for (const t of tasks) await ctx.db.delete(t._id);
+
+    const sessions = await ctx.db.query("julesSessions").withIndex("by_threadId", q => q.eq("threadId", oldThreadId)).collect();
+    for (const s of sessions) await ctx.db.delete(s._id);
+
+    const memory = await ctx.db.query("observational_memory").withIndex("by_threadId", q => q.eq("threadId", oldThreadId)).collect();
+    for (const m of memory) await ctx.db.delete(m._id);
+
+    // 2. Cycle thread
+    const newThreadId = await createThread(ctx, components.agent);
+    await ctx.db.patch(user._id, { 
+      threadId: newThreadId,
+      isAgentRunning: false,
+      pendingMessageText: undefined
+    });
+
+    return oldThreadId;
+  }
+});
+
+// --- Existing User State Management ---
+
+export const updateLastSearchingSent = internalMutation({
+  args: { threadId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.query("users")
+      .withIndex("by_telegramChatId")
+      .filter(q => q.eq(q.field("threadId"), args.threadId))
+      .first();
+    if (user) {
+      await ctx.db.patch(user._id, { lastSearchingSentAt: Date.now() });
+    }
+  }
+});
+
+export const getLastSearchingSent = internalQuery({
+  args: { threadId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db.query("users")
+      .withIndex("by_telegramChatId")
+      .filter(q => q.eq(q.field("threadId"), args.threadId))
+      .first();
+    return user?.lastSearchingSentAt;
+  }
+});
+
+export const appendPendingMessage = internalMutation({
+  args: { threadId: v.string(), text: v.string() },
+  handler: async (ctx, { threadId, text }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId")
+      .filter(q => q.eq(q.field("threadId"), threadId))
+      .first();
+    if (!user) return;
+    const current = user.pendingMessageText || "";
+    const separator = current ? "\n" : "";
+    await ctx.db.patch(user._id, {
+      pendingMessageText: current + separator + text,
+    });
+  },
+});
+
+export const getPendingMessages = internalQuery({
+  args: { threadId: v.string() },
+  handler: async (ctx, { threadId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId")
+      .filter(q => q.eq(q.field("threadId"), threadId))
+      .first();
+    return user?.pendingMessageText || "";
+  },
+});
+
+export const clearPendingMessages = internalMutation({
+  args: { threadId: v.string() },
+  handler: async (ctx, { threadId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId")
+      .filter(q => q.eq(q.field("threadId"), threadId))
+      .first();
+    if (user) {
+      await ctx.db.patch(user._id, { pendingMessageText: undefined });
+    }
+  },
+});
+
+export const setAgentRunning = internalMutation({
+  args: { threadId: v.string(), isRunning: v.boolean() },
+  handler: async (ctx, { threadId, isRunning }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId")
+      .filter(q => q.eq(q.field("threadId"), threadId))
+      .first();
+    if (user) {
+      await ctx.db.patch(user._id, { isAgentRunning: isRunning });
+    }
+  },
+});
+
+export const isAgentRunning = internalQuery({
+  args: { threadId: v.string() },
+  handler: async (ctx, { threadId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId")
+      .filter(q => q.eq(q.field("threadId"), threadId))
+      .first();
+    return user?.isAgentRunning ?? false;
+  },
+});

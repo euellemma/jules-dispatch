@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+  }
+}
+
+@layer components {
+  .card-v2 {
+    @apply bg-transparent border border-slate-200 rounded-lg transition-all;
+  }
+
+  .btn-v2-primary {
+    @apply bg-yellow-400 hover:bg-yellow-500 text-black font-bold py-3 px-6 rounded-lg transition-all active:scale-[0.98];
+  }
+}

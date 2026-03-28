@@ -1,0 +1,60 @@
+{
+  "name": "jules-dispatch",
+  "version": "0.1.0",
+  "description": "Telegram bot powered by Jules AI agent",
+  "type": "module",
+  "private": false,
+  "bin": {
+    "jules-dispatch": "./cli/bin.js"
+  },
+  "scripts": {
+    "dev": "npm run dev:convex & npm run dev:bot",
+    "dev:convex": "npx convex dev",
+    "dev:bot": "npx tsx scripts/bot.ts",
+    "dev:web": "cd web && npm run dev",
+    "dev:all": "npm run dev:convex & npm run dev:bot & npm run dev:web",
+    "build:cli": "tsc --project tsconfig.cli.json",
+    "build:web": "cd web && npm run build",
+    "build": "npm run build:cli && npm run build:web",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
+    "typecheck:all": "tsc --noEmit && cd web && tsc --noEmit",
+    "ci": "npm run typecheck:all && npm run lint",
+    "deploy:dev": "npx convex deploy --yes",
+    "deploy": "npx @convex-dev/static-hosting deploy --yes",
+    "deploy:web": "npm run build:web && npx @convex-dev/static-hosting upload --build --prod",
+    "auth:byok": "echo 'Open settings from Telegram using /connect command'",
+    "cli": "npm run build:cli && node dist/cli/index.js",
+    "prepublishOnly": "npm run build:cli",
+    "tester": "npx tsx --tsconfig tester/tsconfig.json tester/runner.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/jszip": "^3.4.1",
+    "@types/node": "^20.x",
+    "eslint": "^9.39.4",
+    "globals": "^17.4.0",
+    "tsx": "^4.x",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.2"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.63",
+    "@ai-sdk/google": "^3.0.52",
+    "@ai-sdk/openai": "^3.0.47",
+    "@ai-sdk/openai-compatible": "^2.0.37",
+    "@clack/prompts": "^1.1.0",
+    "@convex-dev/agent": "^0.6.1",
+    "@convex-dev/static-hosting": "^0.1.3",
+    "@google/jules-sdk": "^0.2.0",
+    "ai": "^6.0.134",
+    "commander": "^14.0.3",
+    "concurrently": "^9.1.0",
+    "convex": "^1.33.1",
+    "exa-js": "^2.8.0",
+    "grammy": "^1.34.0",
+    "jszip": "^3.10.1",
+    "picocolors": "^1.1.1"
+  }
+}
