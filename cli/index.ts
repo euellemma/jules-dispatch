@@ -116,9 +116,24 @@ function getDirectoryState(installPath: string): DirectoryState {
   return 'unknown';
 }
 
-function cloneWithGit(installPath: string): void {
-  execSync(`git clone ${TEMPLATE_REPO} "${installPath}"`, {
-    stdio: ["ignore", "pipe", "pipe"],
+function cloneWithGit(installPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const clone = spawn("git", ["clone", "--progress", TEMPLATE_REPO, installPath], {
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: false,
+    });
+
+    clone.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Git clone failed with code ${code}`));
+      }
+    });
+
+    clone.on("error", (err) => {
+      reject(err);
+    });
   });
 }
 
@@ -204,7 +219,8 @@ async function downloadAndExtract(installPath: string): Promise<void> {
   const buf = Buffer.from(arrayBuf);
 
   fs.mkdirSync(installPath, { recursive: true });
-  extractTarGz(buf, installPath);
+  const fileCount = extractTarGz(buf, installPath);
+  console.log(c.dim(`   Extracted ${fileCount} files`));
 }
 
 async function cloneScaffold(installPath: string): Promise<void> {
@@ -219,7 +235,7 @@ async function cloneScaffold(installPath: string): Promise<void> {
 
   if (isGitAvailable()) {
     try {
-      cloneWithGit(installPath);
+      await cloneWithGit(installPath);
       return;
     } catch {
       // Fall through to download
@@ -232,7 +248,24 @@ async function cloneScaffold(installPath: string): Promise<void> {
 async function pullLatest(installPath: string): Promise<void> {
   if (isGitRepo(installPath) && isGitAvailable()) {
     try {
-      execSync("git pull", { cwd: installPath, stdio: "ignore" });
+      await new Promise<void>((resolve, reject) => {
+        const pull = spawn("git", ["pull"], {
+          cwd: installPath,
+          stdio: "ignore",
+        });
+
+        pull.on("close", (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(`Git pull failed with code ${code}`));
+          }
+        });
+
+        pull.on("error", (err) => {
+          reject(err);
+        });
+      });
       return;
     } catch {
       // Fall through to download
@@ -662,7 +695,15 @@ async function runFreshWizard(): Promise<void> {
       label: "Installation Location",
       run: async () => {
         context.installPath = await runStepLocation();
-        await cloneScaffold(context.installPath);
+        const s = p.spinner();
+        s.start("Fetching code repository...");
+        try {
+          await cloneScaffold(context.installPath);
+          s.stop("Repository downloaded!");
+        } catch (error) {
+          s.stop("Failed to download repository");
+          throw error;
+        }
       },
     },
     {
@@ -902,6 +943,14 @@ async function runFreshWizard(): Promise<void> {
     };
     if (context.exaApiKey) {
       envVarsToSet.EXA_API_KEY = context.exaApiKey;
+    }
+    
+    // Set LLM provider config as env vars (needed for local/anonymous mode)
+    if (context.aiProvider && context.customApiKey) {
+      envVarsToSet.LLM_ENDPOINT = context.aiProvider.endpoint;
+      envVarsToSet.LLM_MODEL = context.aiProvider.model;
+      envVarsToSet.LLM_API_KEY = context.customApiKey;
+      envVarsToSet.LLM_SDK_TYPE = context.aiProvider.sdkType;
     }
     
     const s = p.spinner();
