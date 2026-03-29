@@ -16,95 +16,60 @@ export interface AIPreset {
 
 export const AI_PROVIDER_PRESETS: AIPreset[] = [
   {
+    id: "google-studio",
+    name: "Google AI Studio",
+    endpoint: "https://generativelanguage.googleapis.com/v1beta",
+    sdkType: "google",
+    model: "gemini-3-flash-preview",
+    recommended: true,
+    signUpUrl: "https://aistudio.google.com/app/apikey",
+    description: "Fast Gemini models with generous free tier",
+  },
+  {
     id: "opencode",
     name: "OpenCode Zen",
     endpoint: "https://opencode.ai/zen/go/v1",
     sdkType: "openai-compatible",
-    model: "mimo-v2-pro-free",
     recommended: true,
+    model: "mimo-v2-pro-free",
     signUpUrl: "https://opencode.ai/zen",
     description: "Free MiMo-V2-Pro Trial at opencode.ai/zen",
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    endpoint: "https://openrouter.ai/api/v1",
+    sdkType: "openai-compatible",
+    model: "xiaomi/mimo-v2-pro",
+    signUpUrl: "https://openrouter.ai/keys",
+    description: "Universal API for many models",
   },
   {
     id: "openai",
     name: "OpenAI",
     endpoint: "https://api.openai.com/v1",
     sdkType: "openai",
-    model: "gpt-4o",
+    model: "gpt-5.4-mini",
     signUpUrl: "https://platform.openai.com/api-keys",
-    description: "Industry standard with GPT-4 models",
-  },
-  {
-    id: "google-studio",
-    name: "Google AI Studio",
-    endpoint: "https://generativelanguage.googleapis.com/v1beta",
-    sdkType: "google",
-    model: "gemini-2.0-flash",
-    signUpUrl: "https://aistudio.google.com/app/apikey",
-    description: "Fast Gemini models with generous free tier",
+    description: "Industry standard with GPT-5 models",
   },
   {
     id: "anthropic",
     name: "Anthropic",
     endpoint: "https://api.anthropic.com/v1",
     sdkType: "anthropic",
-    model: "claude-3-5-sonnet-latest",
+    model: "claude-sonnet-4-6",
     signUpUrl: "https://console.anthropic.com/settings/keys",
     description: "Claude models with excellent reasoning",
-  },
-  {
-    id: "openrouter",
-    name: "OpenRouter",
-    endpoint: "https://openrouter.ai/api/v1",
-    sdkType: "openai",
-    model: "xiaomi/mimo-v2-pro",
-    signUpUrl: "https://openrouter.ai/keys",
-    description: "Universal API for many models",
-  },
-  {
-    id: "deepseek",
-    name: "DeepSeek",
-    endpoint: "https://api.deepseek.com",
-    sdkType: "openai",
-    model: "deepseek-chat",
-    signUpUrl: "https://platform.deepseek.com/api_keys",
-    description: "Cost-effective Chinese LLM",
   },
   {
     id: "groq",
     name: "Groq",
     endpoint: "https://api.groq.com/openai/v1",
-    sdkType: "openai",
+    sdkType: "openai-compatible",
     model: "llama-3.3-70b-versatile",
     signUpUrl: "https://console.groq.com/keys",
     description: "Blazing fast inference on open models",
-  },
-  {
-    id: "kimi",
-    name: "Kimi (Moonshot)",
-    endpoint: "https://api.moonshot.cn/v1",
-    sdkType: "openai-compatible",
-    model: "moonshot-v1-8k",
-    signUpUrl: "https://platform.moonshot.cn/console/api-keys",
-    description: "Long context window specialist",
-  },
-  {
-    id: "minimax",
-    name: "MiniMax",
-    endpoint: "https://api.minimax.chat/v1",
-    sdkType: "openai-compatible",
-    model: "abab6.5s-chat",
-    signUpUrl: "https://platform.minimaxi.com/user-center/basic-information/interface-key",
-    description: "Chinese multimodal AI platform",
-  },
-  {
-    id: "glm",
-    name: "GLM (Zhipu AI)",
-    endpoint: "https://open.bigmodel.cn/api/paas/v4/",
-    sdkType: "openai-compatible",
-    model: "glm-4-flash",
-    signUpUrl: "https://open.bigmodel.cn/usercenter/apikeys",
-    description: "Open-source Chinese LLM series",
   },
   {
     id: "custom",
@@ -122,11 +87,16 @@ export function getPresetById(id: string): AIPreset | undefined {
 }
 
 export function getRecommendedPreset(): AIPreset {
-  const preset = AI_PROVIDER_PRESETS.find((p) => p.recommended) ?? AI_PROVIDER_PRESETS[0]!;
+  const preset =
+    AI_PROVIDER_PRESETS.find((p) => p.recommended) ?? AI_PROVIDER_PRESETS[0]!;
   return preset;
 }
 
-export function getPresetChoices(): { value: string; label: string; hint?: string }[] {
+export function getPresetChoices(): {
+  value: string;
+  label: string;
+  hint?: string;
+}[] {
   return AI_PROVIDER_PRESETS.map((preset) => ({
     value: preset.id,
     label: preset.recommended ? `★ ${preset.name}` : preset.name,
