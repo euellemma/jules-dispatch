@@ -29,10 +29,16 @@ async function getJulesApiKey(ctx: { runQuery: Function }, threadId?: string): P
 export async function getJulesClient(ctx: { runQuery: Function }, threadId?: string) {
   const apiKey = await getJulesApiKey(ctx, threadId);
   if (!apiKey) {
+    const isAnonymous = process.env.CONVEX_AGENT_MODE === "anonymous";
+    if (isAnonymous) {
+      throw new Error(
+        "Jules API key not configured. " +
+        "Set JULES_API_KEY in your .env.local file and restart 'npm run dev'."
+      );
+    }
     throw new Error(
       "Jules API key not configured. " +
-      "Please use /connect in Telegram to set your API key, " +
-      "or set the JULES_API_KEY environment variable in your Convex deployment."
+      "Use /connect in Telegram to set your API key."
     );
   }
   return julesSdk.with({ apiKey });
