@@ -78,8 +78,8 @@ function printStep(message: string): void {
 }
 
 function link(url: string, text: string): string {
-  // Terminal hyperlink escape sequence with URL visible and arrow indicator
-  return `\x1b]8;;${url}\x1b\\${text} ↗ ${c.dim(url)}\x1b]8;;\x1b\\`;
+  // Terminal hyperlink escape sequence with URL in brackets and arrow indicator after
+  return `\x1b]8;;${url}\x1b\\[${c.dim(url)}]${text}\x1b]8;;\x1b\\`;
 }
 
 // ─── Git & Archive Helpers ──────────────────────────────────────────────────
@@ -244,6 +244,39 @@ async function pullLatest(installPath: string): Promise<void> {
 
 // ─── Dependencies & Deploy ──────────────────────────────────────────────────
 
+async function setConvexEnvVars(installPath: string, envVars: Record<string, string>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const args = ["convex", "env", "set"];
+    
+    // Add each env var as key=value pairs
+    for (const [key, value] of Object.entries(envVars)) {
+      args.push(`${key}=${value}`);
+    }
+
+    const setEnv = spawn("npx", args, {
+      cwd: installPath,
+      stdio: "pipe",
+      shell: true,
+      env: { ...process.env },
+    });
+
+    let stderr = "";
+    setEnv.stderr?.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    setEnv.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        // Don't fail the entire setup if env set fails - .env.local might still work
+        console.log(c.yellow(`⚠️  Could not set Convex env vars: ${stderr}`));
+        resolve();
+      }
+    });
+  });
+}
+
 async function installDependencies(installPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const install = spawn("npm", ["install"], {
@@ -383,7 +416,7 @@ async function runStepLocation(): Promise<string> {
   const defaultPath = DEFAULT_INSTALL_PATH;
 
   const installPath = await p.text({
-    message: `Installation path (${c.dim("default: " + defaultPath)})`,
+    message: "Installation path",
     placeholder: defaultPath,
     defaultValue: defaultPath,
     validate: (value) => {
@@ -485,7 +518,7 @@ async function runStepTelegram(): Promise<string> {
 
 async function runStepJules(): Promise<string> {
   const apiKey = await p.password({
-    message: `Enter your Jules API key (${link("https://jules.google.com/settings/api", "get key here")})`,
+    message: `Enter your Jules API key ${link("https://jules.google.com/settings/api", "↗")}`,
     mask: "•",
     validate: (value) => {
       if (!value) return "Jules API key is required";
@@ -565,7 +598,7 @@ async function runStepAIProvider(): Promise<{ preset: AIPreset; apiKey: string }
 
 async function runStepExa(): Promise<{ useExa: boolean; apiKey?: string }> {
   const useExa = await p.confirm({
-    message: `Enable Exa web search? (${link("https://dashboard.exa.ai/api-keys", "get key here")})`,
+    message: `Enable Exa web search? ${link("https://dashboard.exa.ai/api-keys", "↗")}`,
     initialValue: false,
   });
 
@@ -862,6 +895,19 @@ async function runFreshWizard(): Promise<void> {
     
     console.log();
     p.log.success(`${c.bold("Jules Dispatch")} is installed at: ${c.cyan(context.installPath!)}`);
+    
+    // Set environment variables in Convex for local development
+    const envVarsToSet: Record<string, string> = {
+      JULES_API_KEY: context.julesApiKey!,
+    };
+    if (context.exaApiKey) {
+      envVarsToSet.EXA_API_KEY = context.exaApiKey;
+    }
+    
+    const s = p.spinner();
+    s.start("Setting up Convex environment variables...");
+    await setConvexEnvVars(context.installPath!, envVarsToSet);
+    s.stop("Environment variables configured!");
     
     // Auto-start dev mode for local development
     console.log();
