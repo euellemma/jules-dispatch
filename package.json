@@ -5,8 +5,15 @@
   "type": "module",
   "private": false,
   "bin": {
-    "jules-dispatch": "./cli/bin.js"
+    "jules-dispatch": "cli/bin.js"
   },
+  "files": [
+    "cli",
+    "dist/cli",
+    "dist/shared",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "npm run dev:convex & npm run dev:bot",
     "dev:convex": "npx convex dev",
