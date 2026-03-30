@@ -368,3 +368,6 @@ Deletes all user data except provider settings.
 ### Out of Scope for v1
 - **Photo/media handling**: Photos, video, audio, voice messages, stickers, and animations are not supported. The local bot rejects them with a user-facing error. The Convex webhook silently ignores them. Only **text messages** and **document files** are supported.
 - **Edited message handling**: Edited messages are logged but not processed.
+
+# Creator of the project preference for coding agents
+- do not user interview / ask user question tools when discussing plans, the user prefers being asked in plain text with your recommendations and also suggestions and is open to push backs on his answers.

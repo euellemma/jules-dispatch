@@ -4,43 +4,41 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import JSZip from "jszip";
 import { jules as julesSdk } from "@google/jules-sdk";
+import { INITIAL_CONFIG } from "../config/initial";
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
-async function getJulesApiKey(ctx: { runQuery: Function }, threadId?: string): Promise<string | null> {
-  // 1. Try to get user-specific API key from database
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getJulesApiKey(ctx: any, threadId?: string): Promise<string> {
   if (threadId) {
-    const telegramChatId = await ctx.runQuery(internal.users.db.getChatIdForThread, { threadId });
-    if (telegramChatId) {
-      const res = await ctx.runQuery(internal.users.db.getProviderConfig, { telegramChatId });
+    const user = await ctx.runQuery(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const userKey = (res as any).julesApiKey;
-      if (userKey) return userKey;
+      (internal as any).users.db.getChatIdForThread,
+      { threadId }
+    ) as string | null;
+
+    if (user) {
+      const res = await ctx.runQuery(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (internal as any).users.db.getProviderConfig,
+        { telegramChatId: user }
+      ) as { julesApiKey?: string };
+
+      if (res?.julesApiKey) return res.julesApiKey;
     }
   }
 
-  // 2. Fall back to environment variable (for bootstrap/anonymous mode)
-  const envKey = process.env.JULES_API_KEY;
-  if (envKey) return envKey;
+  // Fall back to initial config (for testing mode cron jobs)
+  if (INITIAL_CONFIG.julesApiKey) {
+    return INITIAL_CONFIG.julesApiKey;
+  }
 
-  return null;
+  throw new Error(
+    "Jules API key not configured. Re-run the setup wizard or use /connect."
+  );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
-export async function getJulesClient(ctx: { runQuery: Function }, threadId?: string) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getJulesClient(ctx: any, threadId?: string) {
   const apiKey = await getJulesApiKey(ctx, threadId);
-  if (!apiKey) {
-    const isAnonymous = process.env.CONVEX_AGENT_MODE === "anonymous";
-    if (isAnonymous) {
-      throw new Error(
-        "Jules API key not configured. " +
-        "Set JULES_API_KEY in your .env.local file and restart 'npm run dev'."
-      );
-    }
-    throw new Error(
-      "Jules API key not configured. " +
-      "Use /connect in Telegram to set your API key."
-    );
-  }
   return julesSdk.with({ apiKey });
 }
 

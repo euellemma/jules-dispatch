@@ -2,6 +2,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import type { LanguageModel } from "ai";
 import { internal } from "../_generated/api";
 
 interface ProviderConfig {
@@ -11,65 +12,29 @@ interface ProviderConfig {
   sdkType: "openai" | "anthropic" | "google" | "openai-compatible";
 }
 
-export async function resolveLanguageModel(
-  ctx: any,
-  threadId: string,
-  _options: { provideFallback?: boolean } = { provideFallback: false }
-) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function resolveLanguageModel(ctx: any, threadId: string): Promise<LanguageModel> {
   console.log("[resolveLanguageModel] Starting resolution for threadId:", threadId);
 
-  let config: ProviderConfig | null = null;
+  const user = await ctx.runQuery(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (internal as any).users.db.getProviderConfig,
+    { telegramChatId: threadId }
+  ) as { config: ProviderConfig | null; julesApiKey?: string; exaApiKey?: string } | null;
 
-  try {
-    const telegramChatId = await ctx.runQuery(
-      (internal as any).users.db.getChatIdForThread,
-      {
-        threadId: threadId,
-      },
-    );
-
-    if (telegramChatId) {
-      const res = (await ctx.runQuery(
-        (internal as any).users.db.getProviderConfig,
-        {
-          telegramChatId,
-        },
-      )) as { config: ProviderConfig | null; julesApiKey?: string; exaApiKey?: string };
-
-      if (res.config?.apiKey) {
-        config = res.config;
-      }
-    }
-  } catch (err) {
-    console.log("[resolveLanguageModel] No user config found, falling back to env vars");
-  }
-
-  // Fall back to environment variables (for local/anonymous mode)
-  if (!config) {
-    const envEndpoint = process.env.LLM_ENDPOINT;
-    const envModel = process.env.LLM_MODEL;
-    const envApiKey = process.env.LLM_API_KEY;
-    const envSdkType = process.env.LLM_SDK_TYPE as ProviderConfig["sdkType"] | undefined;
-
-    if (envEndpoint && envModel && envApiKey && envSdkType) {
-      console.log("[resolveLanguageModel] Using environment variable config");
-      config = {
-        endpoint: envEndpoint,
-        model: envModel,
-        apiKey: envApiKey,
-        sdkType: envSdkType,
-      };
-    }
-  }
-
-  if (!config) {
+  if (!user) {
     throw new Error(
-      "Provider not configured. Please use /connect to setup your API key, " +
-      "or set LLM_ENDPOINT, LLM_MODEL, LLM_API_KEY, and LLM_SDK_TYPE environment variables."
+      "User not found. Please send a message first to initialize your account."
     );
   }
 
-  const { endpoint, model, apiKey, sdkType } = config;
+  if (!user.config) {
+    throw new Error(
+      "AI provider not configured. Use /connect to set up your API key."
+    );
+  }
+
+  const { endpoint, model, apiKey, sdkType } = user.config;
 
   if (sdkType === "anthropic") {
     console.log("[resolveLanguageModel] Instantiating Anthropic SDK");

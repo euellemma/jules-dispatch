@@ -12,17 +12,11 @@ const anthropic = createAnthropic({
 });
 
 async function getExaApiKey(ctx: any): Promise<string | null> {
-  // 1. Try to get user-specific API key from database
   const telegramChatId = await ctx.runQuery((internal as any).users.db.getChatIdForThread, { threadId: ctx.threadId });
   if (telegramChatId) {
     const res = await ctx.runQuery((internal as any).users.db.getProviderConfig, { telegramChatId });
     if (res.exaApiKey) return res.exaApiKey;
   }
-
-  // 2. Fall back to environment variable (for bootstrap/anonymous mode)
-  const envKey = process.env.EXA_API_KEY;
-  if (envKey) return envKey;
-
   return null;
 }
 

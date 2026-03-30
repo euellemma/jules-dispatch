@@ -52,7 +52,9 @@ async function waitForConvex(
 
     // Try to connect using the found URL
     try {
+      console.log(`trying ${convexUrl}/api/health...`);
       const response = await fetch(`${convexUrl}/api/health`);
+
       if (response.ok) {
         const data = (await response.json()) as { status: string };
         if (data.status === "ok") {
@@ -80,7 +82,7 @@ async function sendToConvex(payload: Record<string, unknown>): Promise<void> {
     console.error("[bot] Cannot send to Convex: URL not set");
     return;
   }
-  
+
   const response = await fetch(`${convexUrl}/bot/message`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -123,7 +125,7 @@ async function main() {
     console.error("[bot] Cannot start: Convex not available");
     process.exit(1);
   }
-  
+
   convexUrl = convexUrlResult;
   console.log(`[bot] Connected to Convex at ${convexUrl}`);
 

@@ -6,6 +6,11 @@ import { julesAgent, resolveLanguageModel } from "../agent/instance";
 import { chunkHtml } from "./utils";
 import { withRetry } from "../utils/retry";
 import { captureException } from "../sentry";
+import { INITIAL_CONFIG, isConfigured } from "../config/initial";
+
+function isTestingMode(): boolean {
+  return !process.env.CONVEX_DEPLOY_KEY;
+}
 
 async function telegramApiCall(endpoint: string, body: object): Promise<any> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
@@ -133,23 +138,50 @@ export async function processTelegramUpdate(
     const chatId = String(message.chat.id);
     const text = message.text || "";
 
+    const isConnectCommand = text.startsWith("/connect") || text.startsWith("/start");
+
     try {
-      // Proactive Onboarding Check
-      const res = await ctx.runQuery(internal.users.db.getProviderConfig, {
-        telegramChatId: chatId,
-      });
+      const existingUser = await ctx.runQuery(
+        internal.users.db.getProviderConfig,
+        { telegramChatId: chatId }
+      );
 
-      const isConnectCommand = text.startsWith("/connect") || text.startsWith("/start");
+      if (!existingUser.config && !existingUser.julesApiKey) {
+        if (isConfigured(INITIAL_CONFIG)) {
+          await ctx.runMutation(internal.users.db.seedFromInitial, {
+            telegramChatId: chatId,
+            julesApiKey: INITIAL_CONFIG.julesApiKey,
+            exaApiKey: INITIAL_CONFIG.exaApiKey,
+            llmEndpoint: INITIAL_CONFIG.llmEndpoint,
+            llmModel: INITIAL_CONFIG.llmModel,
+            llmApiKey: INITIAL_CONFIG.llmApiKey,
+            llmSdkType: INITIAL_CONFIG.llmSdkType,
+          });
 
-      if (!isConnectCommand) {
-        if (!res.config) {
+          if (isTestingMode()) {
+            await sendTelegramMessage(
+              chatId,
+              "👋 <b>Welcome!</b>\n\n(Testing mode - bot only runs when your PC is online. Run `npx jules-dispatch deploy` to host on Convex.)"
+            );
+          }
+        } else if (!isConnectCommand) {
           await sendTelegramMessage(
             chatId,
             "👋 <b>Welcome to Jules Dispatch!</b>\n\nI need an AI provider to function. Please use /connect to set up your API key (OpenCode, Gemini, Anthropic, etc.) before we start chatting."
           );
           return { success: true, handled: true };
         }
-        if (!res.julesApiKey) {
+      }
+
+      if (!isConnectCommand) {
+        if (!existingUser.config) {
+          await sendTelegramMessage(
+            chatId,
+            "👋 <b>Welcome to Jules Dispatch!</b>\n\nI need an AI provider to function. Please use /connect to set up your API key (OpenCode, Gemini, Anthropic, etc.) before we start chatting."
+          );
+          return { success: true, handled: true };
+        }
+        if (!existingUser.julesApiKey) {
           await sendTelegramMessage(
             chatId,
             "🔑 <b>Jules API Key Required</b>\n\nI need a Jules API key to manage your coding sessions. Please use /connect to set it up."

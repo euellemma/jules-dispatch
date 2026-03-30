@@ -190,3 +190,65 @@ export function updateConfig(config: JulesDispatchConfig, updates: Partial<Jules
     updatedAt: new Date().toISOString(),
   };
 }
+
+export interface InitialConfig {
+  julesApiKey: string;
+  exaApiKey?: string;
+  llmEndpoint: string;
+  llmModel: string;
+  llmApiKey: string;
+  llmSdkType: "openai" | "anthropic" | "google" | "openai-compatible";
+}
+
+export function writeInitialConfig(
+  installPath: string,
+  config: {
+    julesApiKey: string;
+    exaApiKey?: string;
+    llmEndpoint: string;
+    llmModel: string;
+    llmApiKey: string;
+    llmSdkType: string;
+  }
+): void {
+  const configDir = path.join(installPath, "convex", "config");
+  const configPath = path.join(configDir, "initial.ts");
+  
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true });
+  }
+  
+  const content = `export interface InitialConfig {
+  julesApiKey: string;
+  exaApiKey?: string;
+  llmEndpoint: string;
+  llmModel: string;
+  llmApiKey: string;
+  llmSdkType: "openai" | "anthropic" | "google" | "openai-compatible";
+}
+
+export const INITIAL_CONFIG: InitialConfig = ${JSON.stringify({
+    julesApiKey: config.julesApiKey,
+    exaApiKey: config.exaApiKey,
+    llmEndpoint: config.llmEndpoint,
+    llmModel: config.llmModel,
+    llmApiKey: config.llmApiKey,
+    llmSdkType: config.llmSdkType,
+  }, null, 2)};
+
+export function isConfigured(config: InitialConfig): boolean {
+  return (
+    config.julesApiKey.length > 0 &&
+    config.llmEndpoint.length > 0 &&
+    config.llmModel.length > 0 &&
+    config.llmApiKey.length > 0
+  );
+}
+`;
+  try {
+    fs.writeFileSync(configPath, content, "utf-8");
+  } catch (error) {
+    console.error("[config] Error writing initial config:", error);
+    throw error;
+  }
+}

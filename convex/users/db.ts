@@ -360,12 +360,54 @@ export const setAgentRunning = internalMutation({
 
 export const isAgentRunning = internalQuery({
   args: { threadId: v.string() },
-  handler: async (ctx, { threadId }) => {
+  handler: async (ctx, args) => {
     const user = await ctx.db
       .query("users")
       .withIndex("by_telegramChatId")
-      .filter(q => q.eq(q.field("threadId"), threadId))
+      .filter(q => q.eq(q.field("threadId"), args.threadId))
       .first();
     return user?.isAgentRunning ?? false;
+  },
+});
+
+export const seedFromInitial = internalMutation({
+  args: {
+    telegramChatId: v.string(),
+    julesApiKey: v.string(),
+    exaApiKey: v.optional(v.string()),
+    llmEndpoint: v.string(),
+    llmModel: v.string(),
+    llmApiKey: v.string(),
+    llmSdkType: v.union(
+      v.literal("openai"),
+      v.literal("anthropic"),
+      v.literal("google"),
+      v.literal("openai-compatible"),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
+      .first();
+
+    if (existing) {
+      return existing._id;
+    }
+
+    const threadId = await createThread(ctx, components.agent);
+    await ctx.db.insert("users", {
+      telegramChatId: args.telegramChatId,
+      threadId,
+      julesApiKey: args.julesApiKey,
+      exaApiKey: args.exaApiKey,
+      providerConfig: {
+        endpoint: args.llmEndpoint,
+        model: args.llmModel,
+        apiKey: args.llmApiKey,
+        sdkType: args.llmSdkType,
+      },
+    });
+    return threadId;
   },
 });

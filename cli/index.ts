@@ -17,6 +17,7 @@ import {
   writeEnvLocal,
   createDefaultConfig,
   parseDeployKey,
+  writeInitialConfig,
 } from "./config.js";
 import {
   getPresetById,
@@ -30,7 +31,7 @@ import {
   type WizardStep,
 } from "./state.js";
 
-const TEMPLATE_REPO = "https://github.com/euellemma/jules-one.git";
+const TEMPLATE_REPO = "https://github.com/euellemma/jules-dispatch.git";
 const DEFAULT_INSTALL_PATH = path.join(os.homedir(), "jules-dispatch");
 
 // ─── Error Handling & Recovery ──────────────────────────────────────────────
@@ -203,7 +204,7 @@ function extractTarGz(buf: Buffer, destDir: string): number {
 
 async function downloadAndExtract(installPath: string): Promise<void> {
   const archiveUrl =
-    "https://github.com/euellemma/jules-one/archive/refs/heads/main.tar.gz";
+    "https://github.com/euellemma/jules-dispatch/archive/refs/heads/main.tar.gz";
 
   const response = await fetch(archiveUrl);
   if (!response.ok) {
@@ -631,8 +632,8 @@ async function runStepAIProvider(): Promise<{ preset: AIPreset; apiKey: string }
 
 async function runStepExa(): Promise<{ useExa: boolean; apiKey?: string }> {
   const useExa = await p.confirm({
-    message: `Enable Exa web search? ${link("https://dashboard.exa.ai/api-keys", "↗")}`,
-    initialValue: false,
+    message: `Enable Exa web search? (Recommended) ${link("https://dashboard.exa.ai/api-keys", "↗")}`,
+    initialValue: true,
   });
 
   if (p.isCancel(useExa)) {
@@ -854,23 +855,11 @@ async function runFreshWizard(): Promise<void> {
   try {
     writeHomeConfig(config);
 
-    // Write .env.local
-    const envVars: Record<string, string> = {
+    // Write .env.local with Telegram bot token
+    // LLM and Jules config is written to convex/config/initial.ts for user seeding
+    writeEnvLocal(context.installPath!, {
       TELEGRAM_BOT_TOKEN: context.telegramToken!,
-      JULES_API_KEY: context.julesApiKey!,
-    };
-
-    if (context.exaApiKey) {
-      envVars.EXA_API_KEY = context.exaApiKey;
-    }
-
-    // Only use anonymous mode for local development (no deploy key)
-    // When deploying, the .env.local will be updated with CONVEX_URL after deploy
-    if (!config.deployKey) {
-      envVars.CONVEX_AGENT_MODE = "anonymous";
-    }
-
-    writeEnvLocal(context.installPath!, envVars);
+    });
 
     // Clear state on success - only after all writes completed
     clearWizardState();
@@ -937,26 +926,17 @@ async function runFreshWizard(): Promise<void> {
     console.log();
     p.log.success(`${c.bold("Jules Dispatch")} is installed at: ${c.cyan(context.installPath!)}`);
     
-    // Set environment variables in Convex for local development
-    const envVarsToSet: Record<string, string> = {
-      JULES_API_KEY: context.julesApiKey!,
-    };
-    if (context.exaApiKey) {
-      envVarsToSet.EXA_API_KEY = context.exaApiKey;
-    }
-    
-    // Set LLM provider config as env vars (needed for local/anonymous mode)
+    // Write initial config to convex/config/initial.ts for seeding new users
     if (context.aiProvider && context.customApiKey) {
-      envVarsToSet.LLM_ENDPOINT = context.aiProvider.endpoint;
-      envVarsToSet.LLM_MODEL = context.aiProvider.model;
-      envVarsToSet.LLM_API_KEY = context.customApiKey;
-      envVarsToSet.LLM_SDK_TYPE = context.aiProvider.sdkType;
+      writeInitialConfig(context.installPath!, {
+        julesApiKey: context.julesApiKey!,
+        exaApiKey: context.exaApiKey,
+        llmEndpoint: context.aiProvider.endpoint,
+        llmModel: context.aiProvider.model,
+        llmApiKey: context.customApiKey,
+        llmSdkType: context.aiProvider.sdkType,
+      });
     }
-    
-    const s = p.spinner();
-    s.start("Setting up Convex environment variables...");
-    await setConvexEnvVars(context.installPath!, envVarsToSet);
-    s.stop("Environment variables configured!");
     
     // Auto-start dev mode for local development
     console.log();
