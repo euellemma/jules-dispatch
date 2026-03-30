@@ -658,21 +658,34 @@ async function runStepAIProvider(): Promise<{
 }
 
 async function runStepExa(): Promise<{ useExa: boolean; apiKey?: string }> {
+  const message = `Exa gives your agent web search superpowers (1k free searches/mo)
+Without it, your agent is limited to training data knowledge only.`;
+
+  const choice = await p.confirm({
+    message,
+    initialValue: true,
+  });
+
+  if (p.isCancel(choice)) {
+    process.exit(0);
+  }
+
+  if (!choice) {
+    return { useExa: false };
+  }
+
   const apiKey = await p.text({
-    message: `Enter Exa API key (or press Enter to skip) ${link("https://dashboard.exa.ai/api-keys", "↗")}`,
-    placeholder: "Press Enter to skip (recommended: enables web search)",
+    message: `Enter Exa API key ${link("https://dashboard.exa.ai/register", "(get free key ↗)")}`,
+    validate: (v) => {
+      if (!v || v.trim().length < 10) return "Please enter a valid API key";
+    },
   });
 
   if (p.isCancel(apiKey)) {
     process.exit(0);
   }
 
-  const trimmedKey = (apiKey as string)?.trim();
-  if (!trimmedKey) {
-    return { useExa: false };
-  }
-
-  return { useExa: true, apiKey: trimmedKey };
+  return { useExa: true, apiKey: (apiKey as string).trim() };
 }
 
 async function runStepConvex(): Promise<{
