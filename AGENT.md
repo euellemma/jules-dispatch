@@ -13,6 +13,7 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 - **`convex/agent/instance.ts`**: The `Agent` class instantiation using `@convex-dev/agent`. Contains `contextHandler` for memory, task, dashboard, and uploaded files injection.
 - **`convex/agent/instructions.ts`**: The System Prompt. Contains rules for silent registration, research delegation, and Telegram HTML.
 - **`convex/agent/modelResolver.ts`**: Resolves the appropriate language model based on the user's `providerConfig` stored in the `users` table.
+- **`convex/config/initial.ts`**: Initial configuration template for user seeding in testing mode. Exports `INITIAL_CONFIG` and `isConfigured()` helper.
 
 ### 🧠 Memory System (Observational Memory)
 - **`convex/memory/db.ts`**: Memory table CRUD (`getMemory`, `upsertMemory`, `updateLastObservedAt`, `initializeMemory`).
@@ -75,7 +76,7 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 ### 🖥 CLI (`cli/`)
 - **`cli/bin.js`**: Shebang entry point for `npx jules-dispatch`. Imports from `dist/cli/index.js` (pre-compiled JS, no tsx required).
 - **`cli/index.ts`**: Main CLI wizard and commands (compiled to `dist/cli/index.js`):
-  - **Fresh Wizard** (6 steps): Location → Telegram Token → Jules API Key (required) → AI Provider → Exa Search → Convex Setup → npm install
+  - **Fresh Wizard** (6 steps): Location → Telegram Token → Jules API Key (required) → AI Provider → Exa Search (press Enter to skip) → Convex Setup → npm install
   - **Update Command** (`npx jules-dispatch update`): git pull → npm install → deploy if deploy key exists
   - **Deploy Command** (`npx jules-dispatch deploy`): deploy to production using deploy key, set up webhook
   - Git fallback: pure Node.js tar.gz extraction if git is unavailable (cross-platform: Windows, macOS, Linux)

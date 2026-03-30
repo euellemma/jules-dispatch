@@ -192,6 +192,7 @@ export function updateConfig(config: JulesDispatchConfig, updates: Partial<Jules
 }
 
 export interface InitialConfig {
+  telegramBotToken: string;
   julesApiKey: string;
   exaApiKey?: string;
   llmEndpoint: string;
@@ -203,6 +204,7 @@ export interface InitialConfig {
 export function writeInitialConfig(
   installPath: string,
   config: {
+    telegramBotToken: string;
     julesApiKey: string;
     exaApiKey?: string;
     llmEndpoint: string;
@@ -219,6 +221,7 @@ export function writeInitialConfig(
   }
   
   const content = `export interface InitialConfig {
+  telegramBotToken: string;
   julesApiKey: string;
   exaApiKey?: string;
   llmEndpoint: string;
@@ -228,6 +231,7 @@ export function writeInitialConfig(
 }
 
 export const INITIAL_CONFIG: InitialConfig = ${JSON.stringify({
+    telegramBotToken: config.telegramBotToken,
     julesApiKey: config.julesApiKey,
     exaApiKey: config.exaApiKey,
     llmEndpoint: config.llmEndpoint,
@@ -238,6 +242,7 @@ export const INITIAL_CONFIG: InitialConfig = ${JSON.stringify({
 
 export function isConfigured(config: InitialConfig): boolean {
   return (
+    config.telegramBotToken.length > 0 &&
     config.julesApiKey.length > 0 &&
     config.llmEndpoint.length > 0 &&
     config.llmModel.length > 0 &&

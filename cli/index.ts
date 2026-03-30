@@ -25,11 +25,7 @@ import {
   validateUrl,
   type AIPreset,
 } from "../shared/presets.js";
-import {
-  saveWizardState,
-  clearWizardState,
-  type WizardStep,
-} from "./state.js";
+import { saveWizardState, clearWizardState, type WizardStep } from "./state.js";
 
 const TEMPLATE_REPO = "https://github.com/euellemma/jules-dispatch.git";
 const DEFAULT_INSTALL_PATH = path.join(os.homedir(), "jules-dispatch");
@@ -41,14 +37,12 @@ class WizardError extends Error {
     message: string,
     public readonly step: WizardStep,
     public readonly recoverable: boolean = true,
-    public readonly suggestion?: string
+    public readonly suggestion?: string,
   ) {
     super(message);
     this.name = "WizardError";
   }
 }
-
-
 
 function handleError(error: unknown, _currentStep: WizardStep): void {
   if (error instanceof WizardError) {
@@ -61,7 +55,11 @@ function handleError(error: unknown, _currentStep: WizardStep): void {
     }
   } else if (error instanceof Error) {
     p.log.error(c.red(`Unexpected error: ${error.message}`));
-    p.log.info(c.dim("If this persists, please check your connection or try again later."));
+    p.log.info(
+      c.dim(
+        "If this persists, please check your connection or try again later.",
+      ),
+    );
   } else {
     p.log.error(c.red("An unknown error occurred"));
   }
@@ -100,29 +98,33 @@ function isGitRepo(dirPath: string): boolean {
 
 // ─── Directory Validation Helper ────────────────────────────────────────────
 
-type DirectoryState = 'empty' | 'partial' | 'complete' | 'unknown';
+type DirectoryState = "empty" | "partial" | "complete" | "unknown";
 
 function getDirectoryState(installPath: string): DirectoryState {
-  if (!fs.existsSync(installPath)) return 'empty';
+  if (!fs.existsSync(installPath)) return "empty";
 
   const contents = fs.readdirSync(installPath);
-  if (contents.length === 0) return 'empty';
+  if (contents.length === 0) return "empty";
 
-  const hasPackageJson = fs.existsSync(path.join(installPath, 'package.json'));
-  const hasConvexDir = fs.existsSync(path.join(installPath, 'convex'));
-  const hasNodeModules = fs.existsSync(path.join(installPath, 'node_modules'));
+  const hasPackageJson = fs.existsSync(path.join(installPath, "package.json"));
+  const hasConvexDir = fs.existsSync(path.join(installPath, "convex"));
+  const hasNodeModules = fs.existsSync(path.join(installPath, "node_modules"));
 
-  if (hasPackageJson && hasConvexDir && hasNodeModules) return 'complete';
-  if (hasPackageJson || hasConvexDir) return 'partial';
-  return 'unknown';
+  if (hasPackageJson && hasConvexDir && hasNodeModules) return "complete";
+  if (hasPackageJson || hasConvexDir) return "partial";
+  return "unknown";
 }
 
 function cloneWithGit(installPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const clone = spawn("git", ["clone", "--progress", TEMPLATE_REPO, installPath], {
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: false,
-    });
+    const clone = spawn(
+      "git",
+      ["clone", "--progress", TEMPLATE_REPO, installPath],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        shell: false,
+      },
+    );
 
     clone.on("close", (code) => {
       if (code === 0) {
@@ -157,7 +159,8 @@ function extractTarGz(buf: Buffer, destDir: string): number {
     if (!name) break;
 
     const typeChar = header[156];
-    const size = parseInt(header.subarray(124, 136).toString("utf-8").trim(), 8) || 0;
+    const size =
+      parseInt(header.subarray(124, 136).toString("utf-8").trim(), 8) || 0;
 
     offset += 512;
 
@@ -212,7 +215,7 @@ async function downloadAndExtract(installPath: string): Promise<void> {
       `Failed to download: ${response.status} ${response.statusText}`,
       "location",
       true,
-      "Check your internet connection and try again"
+      "Check your internet connection and try again",
     );
   }
 
@@ -230,7 +233,7 @@ async function cloneScaffold(installPath: string): Promise<void> {
       `Directory ${installPath} already exists`,
       "location",
       true,
-      "Choose a different location or use the existing directory"
+      "Choose a different location or use the existing directory",
     );
   }
 
@@ -278,10 +281,13 @@ async function pullLatest(installPath: string): Promise<void> {
 
 // ─── Dependencies & Deploy ──────────────────────────────────────────────────
 
-async function setConvexEnvVars(installPath: string, envVars: Record<string, string>): Promise<void> {
+async function setConvexEnvVars(
+  installPath: string,
+  envVars: Record<string, string>,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const args = ["convex", "env", "set"];
-    
+
     // Add each env var as key=value pairs
     for (const [key, value] of Object.entries(envVars)) {
       args.push(`${key}=${value}`);
@@ -323,12 +329,14 @@ async function installDependencies(installPath: string): Promise<void> {
       if (code === 0) {
         resolve();
       } else {
-        reject(new WizardError(
-          `npm install failed with code ${code}`,
-          "location",
-          true,
-          "Try running 'npm install' manually in the project directory"
-        ));
+        reject(
+          new WizardError(
+            `npm install failed with code ${code}`,
+            "location",
+            true,
+            "Try running 'npm install' manually in the project directory",
+          ),
+        );
       }
     });
   });
@@ -360,7 +368,7 @@ async function runDevMode(installPath: string): Promise<void> {
 
 async function runConvexDeploy(
   deployKey: string,
-  installPath: string
+  installPath: string,
 ): Promise<boolean> {
   process.env.CONVEX_DEPLOY_KEY = deployKey;
 
@@ -380,7 +388,7 @@ async function runConvexDeploy(
 
 async function setupTelegramWebhook(
   telegramToken: string,
-  siteUrl: string
+  siteUrl: string,
 ): Promise<void> {
   const webhookUrl = `${siteUrl}/telegram`;
   const apiUrl = `https://api.telegram.org/bot${telegramToken}/setWebhook?url=${encodeURIComponent(webhookUrl)}`;
@@ -393,7 +401,9 @@ async function setupTelegramWebhook(
     };
 
     if (!data.ok) {
-      p.log.warn(c.yellow(`⚠️ Webhook setup: ${data.description || "Unknown error"}`));
+      p.log.warn(
+        c.yellow(`⚠️ Webhook setup: ${data.description || "Unknown error"}`),
+      );
     }
   } catch {
     p.log.warn(c.yellow("⚠️ Could not set Telegram webhook automatically"));
@@ -417,11 +427,14 @@ interface StepContext {
 
 async function promptForDeployKey(): Promise<string | null> {
   p.log.message(c.cyan("🔗 Convex Deploy Key"));
-  p.log.info(c.dim("1. Go to https://dashboard.convex.dev"));
-  p.log.info(c.dim("2. Open your project"));
+  p.log.info(
+    c.dim(
+      `1. Go to ${link("https://dashboard.convex.dev", "dashboard.convex.dev")}`,
+    ),
+  );
+  p.log.info(c.dim("2. Create a new project"));
   p.log.info(c.dim("3. Settings → Deploy Keys"));
   p.log.info(c.dim("4. Create a new key"));
-  p.log.info(c.dim("\nFormat: team:project|token...\n"));
 
   const deployKey = await p.text({
     message: "Paste your Convex deploy key",
@@ -475,37 +488,47 @@ async function runStepLocation(): Promise<string> {
   // Check if directory exists and handle accordingly
   const dirState = getDirectoryState(resolvedPath);
 
-  if (dirState !== 'empty') {
+  if (dirState !== "empty") {
     const stateDescription = {
-      'partial': 'partial installation',
-      'complete': 'complete installation',
-      'unknown': 'existing files'
+      partial: "partial installation",
+      complete: "complete installation",
+      unknown: "existing files",
     }[dirState];
 
     p.log.warn(c.yellow(`⚠️  Directory exists with ${stateDescription}`));
 
     const action = await p.select({
-      message: 'What would you like to do?',
+      message: "What would you like to do?",
       options: [
-        { value: 'clear', label: 'Clear and start fresh', hint: 'Delete everything and start over' },
-        { value: 'different', label: 'Choose different location', hint: 'Pick another directory' },
-        { value: 'cancel', label: 'Cancel', hint: 'Exit setup' },
+        {
+          value: "clear",
+          label: "Clear and start fresh",
+          hint: "Delete everything and start over",
+        },
+        {
+          value: "different",
+          label: "Choose different location",
+          hint: "Pick another directory",
+        },
+        { value: "cancel", label: "Cancel", hint: "Exit setup" },
       ],
-      initialValue: 'clear',
+      initialValue: "clear",
     });
 
-    if (p.isCancel(action) || action === 'cancel') {
+    if (p.isCancel(action) || action === "cancel") {
       process.exit(0);
     }
 
-    if (action === 'different') {
+    if (action === "different") {
       // Recursively call to get a different path
       return runStepLocation();
     }
 
-    if (action === 'clear') {
+    if (action === "clear") {
       const confirmClear = await p.confirm({
-        message: c.red(`Are you sure you want to delete everything in ${c.bold(resolvedPath)}?`),
+        message: c.red(
+          `Are you sure you want to delete everything in ${c.bold(resolvedPath)}?`,
+        ),
         initialValue: false,
       });
 
@@ -514,18 +537,18 @@ async function runStepLocation(): Promise<string> {
       }
 
       const s = p.spinner();
-      s.start('Clearing directory...');
+      s.start("Clearing directory...");
 
       try {
         fs.rmSync(resolvedPath, { recursive: true, force: true });
-        s.stop('Directory cleared!');
+        s.stop("Directory cleared!");
       } catch (error) {
-        s.stop('Failed to clear directory');
+        s.stop("Failed to clear directory");
         throw new WizardError(
           `Failed to clear directory: ${error}`,
-          'location',
+          "location",
           true,
-          'Check permissions or manually delete the directory'
+          "Check permissions or manually delete the directory",
         );
       }
     }
@@ -536,7 +559,8 @@ async function runStepLocation(): Promise<string> {
 
 async function runStepTelegram(): Promise<string> {
   const token = await p.password({
-    message: "Enter your Telegram bot token (use the mini-app and click 'Open')",
+    message:
+      "Enter your Telegram bot token (use the mini-app and click 'Open')",
     mask: "•",
     validate: (value) => {
       if (!value) return "Telegram bot token is required";
@@ -566,7 +590,10 @@ async function runStepJules(): Promise<string> {
   return apiKey as string;
 }
 
-async function runStepAIProvider(): Promise<{ preset: AIPreset; apiKey: string }> {
+async function runStepAIProvider(): Promise<{
+  preset: AIPreset;
+  apiKey: string;
+}> {
   const choices = getPresetChoices();
   const selection = await p.select({
     message: "Select your AI provider",
@@ -631,40 +658,40 @@ async function runStepAIProvider(): Promise<{ preset: AIPreset; apiKey: string }
 }
 
 async function runStepExa(): Promise<{ useExa: boolean; apiKey?: string }> {
-  const useExa = await p.confirm({
-    message: `Enable Exa web search? (Recommended) ${link("https://dashboard.exa.ai/api-keys", "↗")}`,
-    initialValue: true,
-  });
-
-  if (p.isCancel(useExa)) {
-    process.exit(0);
-  }
-
-  if (!useExa) {
-    return { useExa: false };
-  }
-
-  const apiKey = await p.password({
-    message: "Enter your Exa API key",
-    mask: "•",
-    validate: (value) => {
-      if (!value) return "Exa API key is required to enable search";
-    },
+  const apiKey = await p.text({
+    message: `Enter Exa API key (or press Enter to skip) ${link("https://dashboard.exa.ai/api-keys", "↗")}`,
+    placeholder: "Press Enter to skip (recommended: enables web search)",
   });
 
   if (p.isCancel(apiKey)) {
     process.exit(0);
   }
 
-  return { useExa: true, apiKey: apiKey as string };
+  const trimmedKey = (apiKey as string)?.trim();
+  if (!trimmedKey) {
+    return { useExa: false };
+  }
+
+  return { useExa: true, apiKey: trimmedKey };
 }
 
-async function runStepConvex(): Promise<{ mode: "local" | "deploy"; deployKey?: string }> {
+async function runStepConvex(): Promise<{
+  mode: "local" | "deploy";
+  deployKey?: string;
+}> {
   const mode = await p.select({
     message: "How do you want to run Convex?",
     options: [
-      { value: "local", label: "Test locally first", hint: "No account needed, runs on your machine" },
-      { value: "deploy", label: "Deploy to Convex", hint: "Requires deploy key from dashboard.convex.dev" },
+      {
+        value: "local",
+        label: "Test locally first",
+        hint: "No account needed, runs on your machine",
+      },
+      {
+        value: "deploy",
+        label: "Deploy to Convex",
+        hint: "Requires deploy key from dashboard.convex.dev (gets one free)",
+      },
     ],
   });
 
@@ -752,12 +779,12 @@ async function runFreshWizard(): Promise<void> {
 
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i]!;
-    
+
     printStep(step.label);
 
     try {
       await step.run();
-      
+
       // Save state after each step
       const nextStep = steps[i + 1];
       saveWizardState({
@@ -772,7 +799,7 @@ async function runFreshWizard(): Promise<void> {
       });
     } catch (error) {
       handleError(error, step.id);
-      
+
       const retry = await p.confirm({
         message: "Try again?",
         initialValue: true,
@@ -810,7 +837,7 @@ async function runFreshWizard(): Promise<void> {
       s.start("Cleaning and retrying...");
 
       try {
-        const nodeModulesPath = path.join(context.installPath!, 'node_modules');
+        const nodeModulesPath = path.join(context.installPath!, "node_modules");
         if (fs.existsSync(nodeModulesPath)) {
           fs.rmSync(nodeModulesPath, { recursive: true, force: true });
         }
@@ -819,14 +846,18 @@ async function runFreshWizard(): Promise<void> {
         s.stop("Dependencies installed!");
       } catch (_retryError) {
         s.stop("Installation failed again");
-        p.log.warn(c.yellow("\n⚠️  npm install failed twice. Continuing setup..."));
+        p.log.warn(
+          c.yellow("\n⚠️  npm install failed twice. Continuing setup..."),
+        );
         p.log.info(c.dim("You can fix this later by running:"));
         p.log.info(c.dim(`  cd ${context.installPath}`));
         p.log.info(c.dim("  npm install"));
         p.log.info(c.dim("\nOther setup steps will continue."));
       }
     } else {
-      p.log.info(c.dim("\nSkipping npm install. You can run it manually later:"));
+      p.log.info(
+        c.dim("\nSkipping npm install. You can run it manually later:"),
+      );
       p.log.info(c.dim(`  cd ${context.installPath}`));
       p.log.info(c.dim("  npm install"));
       p.log.info(c.dim("\nOther setup steps will continue."));
@@ -845,7 +876,11 @@ async function runFreshWizard(): Promise<void> {
       endpoint: context.aiProvider!.endpoint,
       model: context.aiProvider!.model,
       apiKey: context.customApiKey!,
-      sdkType: context.aiProvider!.sdkType as "openai" | "anthropic" | "google" | "auto",
+      sdkType: context.aiProvider!.sdkType as
+        | "openai"
+        | "anthropic"
+        | "google"
+        | "auto",
     },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -868,7 +903,11 @@ async function runFreshWizard(): Promise<void> {
     if (error instanceof Error) {
       p.log.error(c.red(error.message));
     }
-    p.log.info(c.dim("Your setup progress is preserved. You can retry by running the wizard again."));
+    p.log.info(
+      c.dim(
+        "Your setup progress is preserved. You can retry by running the wizard again.",
+      ),
+    );
     process.exit(1);
   }
 
@@ -876,30 +915,46 @@ async function runFreshWizard(): Promise<void> {
   if (config.deployKey) {
     console.log();
     s.start("Deploying to Convex...");
-    
-    const deploySuccess = await runConvexDeploy(config.deployKey, context.installPath!);
-    
+
+    const deploySuccess = await runConvexDeploy(
+      config.deployKey,
+      context.installPath!,
+    );
+
     if (deploySuccess) {
       s.stop(c.green("Deployed successfully!"));
-      
+
       const info = parseDeployKey(config.deployKey);
       if (info) {
         writeEnvLocal(context.installPath!, {
           CONVEX_URL: info.convexUrl,
           CONVEX_SITE_URL: info.convexSiteUrl,
         });
-        
+
         // Set up Telegram webhook if token exists
         if (config.telegramBotToken) {
           try {
-            await setupTelegramWebhook(config.telegramBotToken, info.convexSiteUrl);
+            await setupTelegramWebhook(
+              config.telegramBotToken,
+              info.convexSiteUrl,
+            );
           } catch (_webhookError) {
-            p.log.warn(c.yellow("\n⚠️  Could not set up Telegram webhook automatically"));
-            p.log.info(c.dim("You can set it manually later in your Telegram bot settings"));
-            p.log.info(c.dim("Or it will be set up automatically when you start the bot"));
+            p.log.warn(
+              c.yellow("\n⚠️  Could not set up Telegram webhook automatically"),
+            );
+            p.log.info(
+              c.dim(
+                "You can set it manually later in your Telegram bot settings",
+              ),
+            );
+            p.log.info(
+              c.dim(
+                "Or it will be set up automatically when you start the bot",
+              ),
+            );
           }
         }
-        
+
         console.log();
         p.log.success(`Connected to: ${c.cyan(info.convexUrl)}`);
         console.log();
@@ -913,7 +968,11 @@ async function runFreshWizard(): Promise<void> {
       s.stop(c.red("Deployment failed"));
       console.log();
       p.log.error(c.red("Failed to deploy to Convex."));
-      p.log.info(c.dim("Your code is saved locally. You can retry deployment anytime with:"));
+      p.log.info(
+        c.dim(
+          "Your code is saved locally. You can retry deployment anytime with:",
+        ),
+      );
       p.log.info(c.dim(`  cd ${context.installPath}`));
       p.log.info(c.dim("  npx convex deploy --yes"));
       p.log.info(c.dim("\nOr use the CLI command:"));
@@ -922,13 +981,16 @@ async function runFreshWizard(): Promise<void> {
   } else {
     // ── Done ──
     p.outro(c.green("✨ Setup Complete!"));
-    
+
     console.log();
-    p.log.success(`${c.bold("Jules Dispatch")} is installed at: ${c.cyan(context.installPath!)}`);
-    
+    p.log.success(
+      `${c.bold("Jules Dispatch")} is installed at: ${c.cyan(context.installPath!)}`,
+    );
+
     // Write initial config to convex/config/initial.ts for seeding new users
     if (context.aiProvider && context.customApiKey) {
       writeInitialConfig(context.installPath!, {
+        telegramBotToken: context.telegramToken!,
         julesApiKey: context.julesApiKey!,
         exaApiKey: context.exaApiKey,
         llmEndpoint: context.aiProvider.endpoint,
@@ -937,7 +999,7 @@ async function runFreshWizard(): Promise<void> {
         llmSdkType: context.aiProvider.sdkType,
       });
     }
-    
+
     // Auto-start dev mode for local development
     console.log();
     try {
@@ -1004,10 +1066,10 @@ async function runUpdateCommand(): Promise<void> {
     if (!p.isCancel(deploy) && deploy) {
       s.start("Deploying to Convex...");
       const success = await runConvexDeploy(config.deployKey, installPath);
-      
+
       if (success) {
         s.stop(c.green("Deployed successfully!"));
-        
+
         const keyInfo = parseDeployKey(config.deployKey);
         if (keyInfo) {
           writeEnvLocal(installPath, {
@@ -1016,14 +1078,19 @@ async function runUpdateCommand(): Promise<void> {
           });
 
           if (config.telegramBotToken) {
-            await setupTelegramWebhook(config.telegramBotToken, keyInfo.convexSiteUrl);
+            await setupTelegramWebhook(
+              config.telegramBotToken,
+              keyInfo.convexSiteUrl,
+            );
           }
 
           p.log.success(`Dashboard: ${c.cyan(keyInfo.convexSiteUrl)}/settings`);
         }
       } else {
         s.stop(c.red("Deployment failed"));
-        p.log.error(c.red("\nDeployment failed. Check the output above for details."));
+        p.log.error(
+          c.red("\nDeployment failed. Check the output above for details."),
+        );
         process.exit(1);
       }
     }
@@ -1043,7 +1110,7 @@ async function runUpdateCommand(): Promise<void> {
 
         s.start("Deploying to Convex...");
         const success = await runConvexDeploy(deployKey, installPath);
-        
+
         if (success) {
           s.stop(c.green("Deployed successfully!"));
         } else {
@@ -1075,11 +1142,11 @@ async function runDeployCommand(): Promise<void> {
   p.intro(`${c.bold(c.bgGreen(c.black("  Jules Dispatch Deploy  ")))}`);
 
   let deployKey = config.deployKey;
-  
+
   if (!deployKey) {
     p.log.info(c.dim("No deploy key saved yet.\n"));
     const newDeployKey = await promptForDeployKey();
-    
+
     if (!newDeployKey) {
       p.log.error(c.red("Deploy key required for production deployment."));
       process.exit(1);
@@ -1101,7 +1168,7 @@ async function runDeployCommand(): Promise<void> {
 
   if (success) {
     s.stop(c.green("Deployed successfully!"));
-    
+
     if (keyInfo) {
       writeEnvLocal(installPath, {
         CONVEX_URL: keyInfo.convexUrl,
@@ -1109,7 +1176,10 @@ async function runDeployCommand(): Promise<void> {
       });
 
       if (config.telegramBotToken) {
-        await setupTelegramWebhook(config.telegramBotToken, keyInfo.convexSiteUrl);
+        await setupTelegramWebhook(
+          config.telegramBotToken,
+          keyInfo.convexSiteUrl,
+        );
       }
 
       console.log();
@@ -1122,7 +1192,9 @@ async function runDeployCommand(): Promise<void> {
     }
   } else {
     s.stop(c.red("Deployment failed"));
-    p.log.error(c.red("\nDeployment failed. Check the output above for details."));
+    p.log.error(
+      c.red("\nDeployment failed. Check the output above for details."),
+    );
     p.log.info(c.dim("Common fixes:"));
     p.log.info(c.dim("  • Check your deploy key is valid"));
     p.log.info(c.dim("  • Ensure you have internet connectivity"));
@@ -1169,12 +1241,20 @@ async function runWizard(): Promise<void> {
 
   if (existing.found && existing.path && existing.config) {
     p.log.info(c.dim(`Found existing installation at: ${existing.path}`));
-    
+
     const action = await p.select({
       message: "What would you like to do?",
       options: [
-        { value: "update", label: "Update existing", hint: "Pull latest & optional deploy" },
-        { value: "fresh", label: "Fresh install", hint: "Set up a new instance" },
+        {
+          value: "update",
+          label: "Update existing",
+          hint: "Pull latest & optional deploy",
+        },
+        {
+          value: "fresh",
+          label: "Fresh install",
+          hint: "Set up a new instance",
+        },
       ],
     });
 
@@ -1196,7 +1276,9 @@ async function runWizard(): Promise<void> {
 
 program
   .name("jules-dispatch")
-  .description("Jules Dispatch CLI - Setup and manage your Jules Dispatch Telegram bot")
+  .description(
+    "Jules Dispatch CLI - Setup and manage your Jules Dispatch Telegram bot",
+  )
   .version("0.1.0");
 
 program

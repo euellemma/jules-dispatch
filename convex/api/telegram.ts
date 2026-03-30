@@ -13,8 +13,8 @@ function isTestingMode(): boolean {
 }
 
 async function telegramApiCall(endpoint: string, body: object): Promise<any> {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN not set");
+  const botToken = INITIAL_CONFIG.telegramBotToken;
+  if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN not set in initial.ts");
 
   return await withRetry(async () => {
     const response = await fetch(`https://api.telegram.org/bot${botToken}/${endpoint}`, {
@@ -60,8 +60,8 @@ async function sendTelegramDocument(
   filename: string,
   caption?: string
 ): Promise<void> {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN not set");
+  const botToken = INITIAL_CONFIG.telegramBotToken;
+  if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN not set in initial.ts");
 
   const formData = new FormData();
   formData.append("chat_id", chatId);
@@ -89,8 +89,8 @@ async function sendTelegramDocument(
 }
 
 async function downloadTelegramFile(fileId: string): Promise<Buffer> {
-  const botToken = process.env.TELEGRAM_BOT_TOKEN;
-  if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN not set");
+  const botToken = INITIAL_CONFIG.telegramBotToken;
+  if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN not set in initial.ts");
 
   const fileData = await telegramApiCall("getFile", { file_id: fileId });
 

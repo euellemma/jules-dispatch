@@ -6,8 +6,6 @@ import { getJulesClient } from "../tools/nodeActions";
 import type { ProcessedOutput } from "../types";
 import type { GenericActionCtx } from "convex/server";
 
-const POLL_LOG_ENABLED = true;
-
 // Type for action context passed to helper functions
 type ActionCtx = GenericActionCtx<any>;
 
@@ -25,14 +23,11 @@ export const pollJulesActivities = internalAction({
     const cronStartMs = Date.now();
     const wakerEvents: WakerEvent[] = [];
     
-    if (POLL_LOG_ENABLED) console.log(`[pollJulesActivities] [0ms] Cron triggered`);
-    
     // 1. Discover new sessions from Jules SDK
     await discoverNewSessions(ctx, wakerEvents);
     
     // 2. Poll existing tracked sessions for updates
     const sessions = await ctx.runQuery(internal.sessions.db.getDashboardSessions, {});
-    if (POLL_LOG_ENABLED) console.log(`[pollJulesActivities] Found ${sessions.length} dashboard session(s)`);
 
     for (const sessionDoc of sessions) {
       try {
@@ -69,7 +64,7 @@ export const pollJulesActivities = internalAction({
            }
 
            if (agentMessage) {
-              if (POLL_LOG_ENABLED) console.log(`[pollJulesActivities] Waking agent for message in ${sessionDoc.shortName}`);
+              console.log(`[pollJulesActivities] Waking agent for message in ${sessionDoc.shortName}`);
               
               wakerEvents.push({
                 type: "message",
@@ -205,20 +200,17 @@ export const pollJulesActivities = internalAction({
     // 3. Send aggregated waker events to main agent
     if (wakerEvents.length > 0) {
       await sendWakerEvents(ctx, wakerEvents);
+      console.log(`[pollJulesActivities] Processed ${wakerEvents.length} event(s) in ${Date.now() - cronStartMs}ms`);
     }
-    
-    if (POLL_LOG_ENABLED) console.log(`[pollJulesActivities] Finished in ${Date.now() - cronStartMs}ms`);
   }
 });
 
 async function discoverNewSessions(ctx: ActionCtx, wakerEvents: WakerEvent[]) {
-  if (POLL_LOG_ENABLED) console.log(`[discoverNewSessions] Checking for new sessions...`);
-  
   try {
     const jules = await getJulesClient(ctx);
     const sessionsList = await jules.sessions({}).all();
     
-    if (POLL_LOG_ENABLED) console.log(`[discoverNewSessions] Found ${sessionsList.length} sessions in Jules`);
+    if (sessionsList.length === 0) return; // Nothing to discover
     
     const allDbSessions = await ctx.runQuery(internal.sessions.db.getAllSessions, {});
     const dbSessionMap = new Map(allDbSessions.map((s: { julesSessionId: string }) => [s.julesSessionId, s]));
@@ -239,7 +231,7 @@ async function discoverNewSessions(ctx: ActionCtx, wakerEvents: WakerEvent[]) {
           
           discovered.push({ id: js.id, info });
           
-          if (POLL_LOG_ENABLED) console.log(`[discoverNewSessions] Discovered new session: ${js.id} (${info.state})`);
+          console.log(`[discoverNewSessions] Discovered new session: ${js.id} (${info.state})`);
         } catch (err) {
           console.error(`[discoverNewSessions] Failed to discover session ${js.id}:`, err);
           // Fallback: upsert with state from list if possible, or skip
@@ -269,7 +261,7 @@ async function discoverNewSessions(ctx: ActionCtx, wakerEvents: WakerEvent[]) {
       });
     }
     
-    if (POLL_LOG_ENABLED && discovered.length > 0) {
+    if ( discovered.length > 0) {
       console.log(`[discoverNewSessions] Added ${discovered.length} discovered sessions to waker`);
     }
   } catch (error) {
@@ -278,7 +270,7 @@ async function discoverNewSessions(ctx: ActionCtx, wakerEvents: WakerEvent[]) {
 }
 
 async function sendWakerEvents(ctx: ActionCtx, events: WakerEvent[]) {
-  if (POLL_LOG_ENABLED) console.log(`[sendWakerEvents] Sending ${events.length} aggregated events`);
+  console.log(`[sendWakerEvents] Sending ${events.length} aggregated events`);
   
   // Group events by threadId
   const byThread = new Map<string, WakerEvent[]>();
@@ -323,7 +315,7 @@ async function sendWakerEvents(ctx: ActionCtx, events: WakerEvent[]) {
         promptMessageId: messageId,
       });
       
-      if (POLL_LOG_ENABLED) console.log(`[sendWakerEvents] Sent ${threadEvents.length} events to thread ${threadId}`);
+      console.log(`[sendWakerEvents] Sent ${threadEvents.length} events to thread ${threadId}`);
     } catch (error) {
       console.error(`[sendWakerEvents] Error sending events to thread ${threadId}:`, error);
     }
@@ -332,7 +324,7 @@ async function sendWakerEvents(ctx: ActionCtx, events: WakerEvent[]) {
   // Handle discovered sessions without threadId (new sessions)
   const unthreaded = events.filter(e => e.type === "discovered" && !e.threadId);
   if (unthreaded.length > 0) {
-    if (POLL_LOG_ENABLED) console.log(`[sendWakerEvents] ${unthreaded.length} discovered sessions need user acknowledgement`);
+    console.log(`[sendWakerEvents] ${unthreaded.length} discovered sessions need user acknowledgement`);
     // These will be picked up when user interacts - the session manager will see them
   }
 }

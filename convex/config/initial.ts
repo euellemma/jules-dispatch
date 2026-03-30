@@ -1,4 +1,5 @@
 export interface InitialConfig {
+  telegramBotToken: string;
   julesApiKey: string;
   exaApiKey?: string;
   llmEndpoint: string;
@@ -8,6 +9,7 @@ export interface InitialConfig {
 }
 
 export const INITIAL_CONFIG: InitialConfig = {
+  telegramBotToken: "",
   julesApiKey: "",
   exaApiKey: undefined,
   llmEndpoint: "",
@@ -18,6 +20,7 @@ export const INITIAL_CONFIG: InitialConfig = {
 
 export function isConfigured(config: InitialConfig): boolean {
   return (
+    config.telegramBotToken.length > 0 &&
     config.julesApiKey.length > 0 &&
     config.llmEndpoint.length > 0 &&
     config.llmModel.length > 0 &&
