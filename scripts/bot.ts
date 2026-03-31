@@ -2,24 +2,36 @@ import { Bot, Context } from "grammy";
 import * as fs from "fs";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+console.log(`Telegram bot token: ${TELEGRAM_BOT_TOKEN}`)
 
 if (!TELEGRAM_BOT_TOKEN) {
   console.error("[bot] TELEGRAM_BOT_TOKEN not set in .env.local");
   process.exit(1);
 }
 
+// ─── Clear stale Convex URLs at startup ────────────────────────────────────
+// Removes old ports from .env.local so we don't connect to dead servers.
+// `npx convex dev` will write fresh URLs when it's ready.
+
+function clearStaleConvexUrls(): void {
+  try {
+    const envContent = fs.readFileSync(".env.local", "utf-8");
+    const lines = envContent.split("\n").filter(
+      (line) => !line.startsWith("CONVEX_URL=") && !line.startsWith("CONVEX_SITE_URL=")
+    );
+    fs.writeFileSync(".env.local", lines.join("\n") + "\n", "utf-8");
+  } catch {
+    // .env.local doesn't exist — convex dev will create it
+  }
+}
+
+clearStaleConvexUrls();
+
 // ─── Dynamic Convex URL resolution ─────────────────────────────────────────
+// Always reads .env.local fresh (no process.env caching) so port changes
+// from `npx convex dev` restarts are picked up on each retry.
 
 function getConvexUrl(): string | undefined {
-  // 1. Check process.env first (prefer CONVEX_SITE_URL for HTTP routes)
-  if (process.env.CONVEX_SITE_URL) {
-    return process.env.CONVEX_SITE_URL;
-  }
-  if (process.env.CONVEX_URL) {
-    return process.env.CONVEX_URL;
-  }
-
-  // 2. Read from .env.local file
   try {
     const envContent = fs.readFileSync(".env.local", "utf-8");
     const siteMatch = envContent.match(/^CONVEX_SITE_URL=(.+)$/m);

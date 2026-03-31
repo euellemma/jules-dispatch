@@ -598,7 +598,7 @@ async function runStepAIProvider(): Promise<{
   const selection = await p.select({
     message: "Select your AI provider",
     options: choices,
-    initialValue: "opencode",
+    initialValue: "opencode-zen",
   });
 
   if (p.isCancel(selection)) {

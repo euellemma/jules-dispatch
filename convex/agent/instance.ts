@@ -4,18 +4,10 @@ import { systemInstructions } from "./instructions";
 import * as tools from "../tools";
 import { internal } from "../_generated/api";
 import { resolveLanguageModel } from "./modelResolver";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
 export { resolveLanguageModel };
 
 console.log("[INSTANCE] Module loading");
-
-// Initialize the default fallback provider
-const fallbackProvider = createOpenAICompatible({
-  name: "opencode",
-  baseURL: "https://opencode.ai/zen/v1",
-  apiKey: process.env.OPENCODE_GO_API_KEY,
-});
 
 interface MemoryDoc {
   activeObservations?: string;
@@ -231,7 +223,9 @@ const combinedContextHandler: ContextHandler = async (ctx, args) => {
 
 export const julesAgent = new Agent(components.agent, {
   name: "Jules Dispatch",
-  languageModel: fallbackProvider("big-pickle"),
+  languageModel: (() => {
+    throw new Error("Model must be passed explicitly via generateText options");
+  }) as any,
   instructions: systemInstructions,
   contextHandler: combinedContextHandler,
   maxSteps: 50,
