@@ -13,7 +13,7 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 - **`convex/agent/instance.ts`**: The `Agent` class instantiation using `@convex-dev/agent`. Contains `contextHandler` for memory, task, dashboard, and uploaded files injection.
 - **`convex/agent/instructions.ts`**: The System Prompt. Contains rules for silent registration, research delegation, and Telegram HTML.
 - **`convex/agent/modelResolver.ts`**: Resolves the appropriate language model based on the user's `providerConfig` stored in the `users` table.
-- **`convex/config/initial.ts`**: Initial configuration template for user seeding in testing mode. Exports `INITIAL_CONFIG` and `isConfigured()` helper.
+- **`convex/config/initial.ts`**: Initial configuration template for seeding the first user. Exports `INITIAL_CONFIG` and `isConfigured()` helper.
 
 ### 🧠 Memory System (Observational Memory)
 - **`convex/memory/db.ts`**: Memory table CRUD (`getMemory`, `upsertMemory`, `updateLastObservedAt`, `initializeMemory`).
@@ -79,9 +79,16 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
   - `/api/health` — Health check endpoint
   - `/settings/*` — Static file serving via @convex-dev/static-hosting (SPA fallback)
 
+### 👤 Single-User Architecture
+- **One deployment = one owner.** The first person to message the bot becomes the owner.
+- `getAnyExistingUser` query checks if a user already exists.
+- Telegram gate check in `processTelegramUpdate`: if a user exists with a different `telegramChatId`, the message is rejected with "Bot Already Claimed".
+- No OTP, no waiting room — first come, first served.
+
 ### 🔐 Authentication & Configuration
 - **`convex/users/db.ts`**: Consolidated database functions for user state, provider configurations, auth sessions, thread cycling, pending messages, and agent running state.
   - `getProviderConfigByThreadId` — Single query: threadId → telegramChatId + providerConfig + julesApiKey. Replaces the previous two-query chain (getChatIdForThread → getProviderConfig).
+  - `getAnyExistingUser` — Returns any existing user or null. Used for single-user ownership check.
 - **`convex/users/actions.ts`**: Node actions for provider configuration (e.g., `testConnection`).
 - **`convex/auth_html.ts`**: HTML templates for error pages.
 

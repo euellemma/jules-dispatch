@@ -134,6 +134,15 @@ export async function processTelegramUpdate(
     const chatId = String(message.chat.id);
     const text = message.text || "";
 
+    const existingUser = await ctx.runQuery(internal.users.db.getAnyExistingUser);
+    if (existingUser && existingUser.telegramChatId !== chatId) {
+      await sendTelegramMessage(
+        chatId,
+        "⛔ <b>Bot Already Claimed</b>\n\nThis bot is already connected to another user. Each deployment can only have one owner."
+      );
+      return { success: true, handled: true };
+    }
+
     const isConnectCommand = text.startsWith("/connect") || text.startsWith("/start");
 
     try {

@@ -67,6 +67,14 @@ export const getProviderConfig = internalQuery({
   },
 });
 
+export const getAnyExistingUser = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db.query("users").first();
+    return user ? { telegramChatId: user.telegramChatId } : null;
+  },
+});
+
 export const getProviderConfigByThreadId = internalQuery({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {
