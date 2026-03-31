@@ -146,6 +146,8 @@ export async function processTelegramUpdate(
         { telegramChatId: chatId }
       );
 
+      let justSeeded = false;
+
       if (!existingUser.config && !existingUser.julesApiKey) {
         if (isConfigured(INITIAL_CONFIG)) {
           await ctx.runMutation(internal.users.db.seedFromInitial, {
@@ -158,10 +160,12 @@ export async function processTelegramUpdate(
             llmSdkType: INITIAL_CONFIG.llmSdkType,
           });
 
+          justSeeded = true;
+
           if (isTestingMode()) {
             await sendTelegramMessage(
               chatId,
-              "👋 <b>Welcome!</b>\n\n(Testing mode - bot only runs when your PC is online. Run `npx jules-dispatch deploy` to host on Convex.)"
+              "Welcome! Testing mode — the bot only runs while your PC is online. Run <code>npx jules-dispatch deploy</code> to host it on Convex."
             );
           }
         } else if (!isConnectCommand) {
@@ -173,7 +177,7 @@ export async function processTelegramUpdate(
         }
       }
 
-      if (!isConnectCommand) {
+      if (!isConnectCommand && !justSeeded) {
         if (!existingUser.config) {
           await sendTelegramMessage(
             chatId,

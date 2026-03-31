@@ -674,7 +674,7 @@ async function runStepExa(): Promise<{ useExa: boolean; apiKey?: string }> {
   }
 
   const apiKey = await p.text({
-    message: `Enter Exa API key ${link("https://dashboard.exa.ai/register", "(get free key ↗)")}`,
+    message: `Enter Exa API key ${link("https://dashboard.exa.ai", "(get free key ↗)")}`,
     validate: (v) => {
       if (!v || v.trim().length < 10) return "Please enter a valid API key";
     },
