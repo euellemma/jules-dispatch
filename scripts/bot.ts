@@ -11,7 +11,10 @@ if (!TELEGRAM_BOT_TOKEN) {
 // ─── Dynamic Convex URL resolution ─────────────────────────────────────────
 
 function getConvexUrl(): string | undefined {
-  // 1. Check process.env first
+  // 1. Check process.env first (prefer CONVEX_SITE_URL for HTTP routes)
+  if (process.env.CONVEX_SITE_URL) {
+    return process.env.CONVEX_SITE_URL;
+  }
   if (process.env.CONVEX_URL) {
     return process.env.CONVEX_URL;
   }
@@ -19,6 +22,10 @@ function getConvexUrl(): string | undefined {
   // 2. Read from .env.local file
   try {
     const envContent = fs.readFileSync(".env.local", "utf-8");
+    const siteMatch = envContent.match(/^CONVEX_SITE_URL=(.+)$/m);
+    if (siteMatch && siteMatch[1]) {
+      return siteMatch[1].trim();
+    }
     const match = envContent.match(/^CONVEX_URL=(.+)$/m);
     if (match && match[1]) {
       return match[1].trim();

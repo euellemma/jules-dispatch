@@ -275,6 +275,64 @@ export const nukeUserData = internalMutation({
   }
 });
 
+export const getAllUsersForUpdates = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const users = await ctx.db.query("users").collect();
+    return users
+      .filter(u => u.updateNotificationsEnabled === true)
+      .map(u => ({
+        telegramChatId: u.telegramChatId,
+        lastNotifiedVersion: u.lastNotifiedVersion,
+      }));
+  },
+});
+
+export const markNotifiedVersion = internalMutation({
+  args: {
+    telegramChatId: v.string(),
+    version: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
+      .first();
+
+    if (user) {
+      await ctx.db.patch(user._id, { lastNotifiedVersion: args.version });
+    }
+  },
+});
+
+export const updateNotificationPreference = internalMutation({
+  args: {
+    telegramChatId: v.string(),
+    enabled: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
+      .first();
+
+    if (user) {
+      await ctx.db.patch(user._id, { updateNotificationsEnabled: args.enabled });
+    }
+  },
+});
+
+export const getUserNotificationPreference = internalQuery({
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
+      .first();
+    return user?.updateNotificationsEnabled ?? false;
+  },
+});
+
 // --- Existing User State Management ---
 
 export const updateLastSearchingSent = internalMutation({

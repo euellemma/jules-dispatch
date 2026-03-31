@@ -1,0 +1,20 @@
+{
+  "releases": [
+    {
+      "version": "99.0.0",
+      "type": "major",
+      "date": "2026-03-31",
+      "title": "Test Major Release",
+      "body": "This is a test major release notification. It should trigger for all users.",
+      "url": "https://julesdispatch.com/changelog#v99.0.0"
+    },
+    {
+      "version": "98.5.0",
+      "type": "minor",
+      "date": "2026-03-30",
+      "title": "Test Minor Release",
+      "body": "This is a test minor release notification.",
+      "url": "https://julesdispatch.com/changelog#v98.5.0"
+    }
+  ]
+}

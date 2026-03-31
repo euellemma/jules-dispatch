@@ -658,8 +658,7 @@ async function runStepAIProvider(): Promise<{
 }
 
 async function runStepExa(): Promise<{ useExa: boolean; apiKey?: string }> {
-  const message = `Exa gives your agent web search superpowers (1k free searches/mo)
-Without it, your agent is limited to training data knowledge only.`;
+  const message = `Exa gives your agent web search superpowers (1k free searches/mo)\n  Without it, your agent is limited to training data knowledge only.`;
 
   const choice = await p.confirm({
     message,
@@ -903,10 +902,11 @@ async function runFreshWizard(): Promise<void> {
   try {
     writeHomeConfig(config);
 
-    // Write .env.local with Telegram bot token
+    // Write .env.local with Telegram bot token and anonymous mode
     // LLM and Jules config is written to convex/config/initial.ts for user seeding
     writeEnvLocal(context.installPath!, {
       TELEGRAM_BOT_TOKEN: context.telegramToken!,
+      CONVEX_AGENT_MODE: "anonymous",
     });
 
     // Clear state on success - only after all writes completed
@@ -1200,8 +1200,7 @@ async function runDeployCommand(): Promise<void> {
       p.log.info(`Dashboard: ${c.cyan(keyInfo.convexSiteUrl)}/settings`);
       console.log();
       p.log.message(c.bold("Next:"));
-      p.log.info(`${c.dim("1.")} cd ${installPath}`);
-      p.log.info(`${c.dim("2.")} npm run dev`);
+      p.log.info(`${c.dim("1.")} cd ${installPath} && npm run dev`);
     }
   } else {
     s.stop(c.red("Deployment failed"));

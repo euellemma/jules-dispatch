@@ -9,4 +9,10 @@ crons.interval(
   internal.polling.actions.pollJulesActivities,
 );
 
+crons.interval(
+  "check-for-updates",
+  { seconds: 86400 },
+  internal.updater.actions.checkForUpdates,
+);
+
 export default crons;

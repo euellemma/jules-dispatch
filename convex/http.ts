@@ -32,6 +32,7 @@ http.route({ path: "/settings/api/save", method: "OPTIONS", handler: httpAction(
 http.route({ path: "/settings/api/save-jules", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
 http.route({ path: "/settings/api/save-exa", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
 http.route({ path: "/settings/api/test", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
+http.route({ path: "/settings/api/notifications", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
 
 // API: Get provider config (for React app)
 http.route({
@@ -58,11 +59,16 @@ http.route({
         telegramChatId,
       });
 
+      const user = await ctx.runQuery(internal.users.db.getUserNotificationPreference, {
+        telegramChatId,
+      });
+
       return corsResponse({
         telegramChatId,
         config: res.config,
         julesApiKey: res.julesApiKey,
         exaApiKey: res.exaApiKey,
+        updateNotificationsEnabled: user,
       });
     } catch (error) {
       console.error("[http] Config API error:", error);
@@ -207,6 +213,40 @@ http.route({
     } catch (error) {
       console.error("[http] Test connection error:", error);
       return corsResponse({ error: "Internal error" }, 500);
+    }
+  }),
+});
+
+// API: Save update notification preference
+http.route({
+  path: "/settings/api/notifications",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const body = await request.json() as { token: string; enabled: boolean };
+      const { token, enabled } = body;
+
+      if (!token) {
+        return corsResponse({ error: "Missing token" }, 400);
+      }
+
+      const telegramChatId = await ctx.runQuery(internal.users.db.validateAuthSession, {
+        token,
+      });
+
+      if (!telegramChatId) {
+        return corsResponse({ error: "Invalid or expired session" }, 401);
+      }
+
+      await ctx.runMutation(internal.users.db.updateNotificationPreference, {
+        telegramChatId,
+        enabled,
+      });
+
+      return corsResponse({ success: true });
+    } catch (error) {
+      console.error("[http] Save notifications error:", error);
+      return corsResponse({ error: "Error saving notification preference" }, 500);
     }
   }),
 });

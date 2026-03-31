@@ -59,3 +59,15 @@ export async function testConnection(token: string, config: ProviderConfig): Pro
   }
   return resp.json();
 }
+
+export async function saveNotificationPreference(token: string, enabled: boolean): Promise<void> {
+  const resp = await fetch(`${API_BASE}/settings/api/notifications`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, enabled }),
+  });
+  if (!resp.ok) {
+    const error = await resp.json();
+    throw new Error(error.error || 'Failed to save notification preference');
+  }
+}

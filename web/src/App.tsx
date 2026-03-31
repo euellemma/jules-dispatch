@@ -6,12 +6,14 @@ import {
   ChevronRight, 
   Loader2, 
   CheckCircle2, 
-  AlertCircle 
+  AlertCircle,
+  Bell,
+  BellOff
 } from "lucide-react";
 import { CustomBYOKCard } from "./components/CustomBYOKCard";
 import { ProviderModal } from "./components/ProviderModal";
 import { SuccessScreen } from "./components/SuccessScreen";
-import { fetchConfig, saveConfig, saveJulesKey, saveExaKey } from "./api";
+import { fetchConfig, saveConfig, saveJulesKey, saveExaKey, saveNotificationPreference } from "./api";
 import { useDebounce } from "./hooks/useDebounce";
 import type { SettingsData, ProviderConfig, Preset } from "./types";
 import "./index.css";
@@ -36,6 +38,10 @@ function App() {
     "idle" | "saving" | "saved" | "error"
   >("idle");
   const [exaSaveStatus, setExaSaveStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  const [notificationSaveStatus, setNotificationSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
 
@@ -85,6 +91,7 @@ function App() {
           setAppStatus({ status: "ready", data, token: tokenParam });
           setJulesKey(data.julesApiKey || "");
           setExaKey(data.exaApiKey || "");
+          setNotificationsEnabled(data.updateNotificationsEnabled ?? false);
           setTimeout(() => {
             initialLoadRef.current = false;
           }, 100);
@@ -134,6 +141,20 @@ function App() {
     };
     save();
   }, [debouncedExaKey, appStatus]);
+
+  // Save Notification Preference
+  const handleNotificationChange = async (enabled: boolean) => {
+    if (appStatus.status !== "ready") return;
+    setNotificationsEnabled(enabled);
+    setNotificationSaveStatus("saving");
+    try {
+      await saveNotificationPreference(appStatus.token, enabled);
+      setNotificationSaveStatus("saved");
+      setTimeout(() => setNotificationSaveStatus("idle"), 3000);
+    } catch (_e) {
+      setNotificationSaveStatus("error");
+    }
+  };
 
   const handleProviderSave = async (config: ProviderConfig) => {
     if (appStatus.status !== "ready") return;
@@ -252,6 +273,41 @@ function App() {
                 </div>
                 <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-primary transition-colors" />
               </button>
+
+              <div className="border-t border-slate-200 pt-6">
+                <div className="flex items-start gap-4">
+                  <div className={`p-3 rounded-lg ${notificationsEnabled ? 'bg-primary/10 text-primary' : 'bg-slate-100 text-slate-500'}`}>
+                    {notificationsEnabled ? <Bell className="w-5 h-5" /> : <BellOff className="w-5 h-5" />}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between">
+                      <label htmlFor="notifications" className="font-bold text-slate-900 cursor-pointer">
+                        Update notifications
+                      </label>
+                      <SaveStatusIndicator status={notificationSaveStatus} />
+                    </div>
+                    <p className="text-sm text-slate-600 mt-1 mb-3">
+                      Get notified about new releases via Telegram when minor or major versions are available.
+                    </p>
+                    <button
+                      id="notifications"
+                      type="button"
+                      role="switch"
+                      aria-checked={notificationsEnabled}
+                      onClick={() => handleNotificationChange(!notificationsEnabled)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
+                        notificationsEnabled ? 'bg-primary' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          notificationsEnabled ? 'translate-x-6' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         );

@@ -10,6 +10,7 @@ export interface SettingsData {
   config: ProviderConfig | null;
   julesApiKey?: string;
   exaApiKey?: string;
+  updateNotificationsEnabled?: boolean;
 }
 
 export interface Preset {

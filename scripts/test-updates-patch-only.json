@@ -1,0 +1,12 @@
+{
+  "releases": [
+    {
+      "version": "1.0.1",
+      "type": "minor",
+      "date": "2026-03-31",
+      "title": "Patch Only Release",
+      "body": "This is a patch release - should NOT trigger notification.",
+      "url": "https://julesdispatch.com/changelog#v1.0.1"
+    }
+  ]
+}

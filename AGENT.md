@@ -42,8 +42,8 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 - **`convex/files/db.ts`**: Database for the "Silent Inbox" and registered user files.
 
 ### 🌐 Settings Web App (React Frontend)
-- **`web/src/App.tsx`**: Main settings page component for configuring the AI provider.
-- **`web/src/api.ts`**: API client for settings config fetch/save/test via `/settings/api/*`.
+- **`web/src/App.tsx`**: Main settings page component for configuring the AI provider. Includes update notification toggle.
+- **`web/src/api.ts`**: API client for settings config fetch/save/test via `/settings/api/*`. Includes `saveNotificationPreference`.
 - **`web/src/types.ts`**: TypeScript types + BYOK preset definitions (OpenCode, Google AI Studio, OpenRouter, Anthropic, etc.).
 - **`web/src/components/CustomBYOKCard.tsx`**: Provider configuration card with preset wizard, manual inputs, and connection testing.
 - **`web/src/components/ProviderModal.tsx`**: Preset provider selection modal.
@@ -92,7 +92,33 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 - **`scripts/bot.ts`**: Standalone Grammy bot for local development. Polls Telegram, forwards updates to Convex via `/bot/message` internal route. Handles text, documents, and callback queries. Rejects unsupported media (photos, video, audio, etc.) with a user-facing error message. Graceful shutdown on SIGINT/SIGTERM.
 
 ### ⏰ Cron Jobs
-- **`convex/crons.ts`**: Polls `pollJulesActivities` every 30 seconds for session discovery and state sync.
+- **`convex/crons.ts`**: 
+  - Polls `pollJulesActivities` every 30 seconds for session discovery and state sync.
+  - Checks for app updates every 24 hours via `updater/actions.checkForUpdates`.
+
+### 🔔 Update Notifications
+- **`convex/updater/`**: Update notification system that checks `julesdispatch.com/updates.json` daily.
+  - **`fetch.ts`**: Fetches the updates.json file from the Jules Dispatch website.
+  - **`actions.ts`**: Compares versions and sends Telegram notifications to opted-in users.
+  - **`types.ts`**: TypeScript types for release data.
+- **Schema changes**: `users` table has `updateNotificationsEnabled` and `lastNotifiedVersion` fields.
+- **Notification tiers**: Only notifies on minor/major releases (no patch notifications).
+- **User opt-in**: Users can enable/disable via the Settings UI checkbox.
+- **updates.json format** (hosted at `julesdispatch.com/updates.json`):
+```json
+{
+  "releases": [
+    {
+      "version": "1.2.0",
+      "type": "minor",
+      "date": "2026-03-30",
+      "title": "Agent Memory System",
+      "body": "Release notes in plain text...",
+      "url": "https://julesdispatch.com/changelog#v1.2.0"
+    }
+  ]
+}
+```
 
 ### 📝 Schema
 - **`convex/schema.ts`**: Convex DB schema. Tables: `users`, `julesSessions`, `tasks`, `observational_memory`, `authSessions`, `uploadedFiles`.

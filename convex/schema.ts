@@ -31,6 +31,8 @@ export default defineSchema({
     pendingMessageText: v.optional(v.string()), // Queued messages (newline separated)
     julesApiKey: v.optional(v.string()),
     exaApiKey: v.optional(v.string()),
+    updateNotificationsEnabled: v.optional(v.boolean()), // User opt-in for update notifications
+    lastNotifiedVersion: v.optional(v.string()), // Last version user was notified about
     providerConfig: v.optional(
       v.object({
         endpoint: v.string(),
