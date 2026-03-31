@@ -267,10 +267,10 @@ export const handle_files = createTool({
  */
 export const query_sessions = createTool({
   description:
-    "Browse, search, inspect, and manage the user's Jules sessions. Spawns a session manager sub-agent with all sessions in context.",
+    "Browse, search, inspect, and manage the user's Jules sessions. Discovers sessions from the Jules API on-demand. Spawns a session manager sub-agent with filtering support (time, state, fuzzy search).",
   inputSchema: z.object({
     prompt: z.string().optional().describe(
-      "What the user wants to do with their sessions — e.g. 'find the running auth session', 'show me all discovered sessions', 'acknowledge abc123'.",
+      "What the user wants to do — e.g. 'find active sessions from today', 'show failed sessions from last week', 'track all sessions about auth', 'register all unregistered sessions'. If omitted, defaults to 'Show me my sessions and let me know if any need attention.'",
     ),
   }),
   execute: async (ctx, args): Promise<string> => {
@@ -296,14 +296,18 @@ export const query_sessions = createTool({
  * manage_sessions — Bulk manage Jules sessions.
  */
 export const manage_sessions = createTool({
-  description: "Bulk manage Jules sessions: register, track, archive, or configure preferences.",
+  description: "Bulk manage Jules sessions. REGISTER: acknowledge unregistered sessions. TRACK: add to dashboard. ARCHIVE: remove tracked sessions from dashboard (untrack). CONFIGURE: update preferences.",
   inputSchema: z.object({
     action: z.enum(["REGISTER", "TRACK", "ARCHIVE", "CONFIGURE"])
-      .describe("REGISTER: Acknowledge discovered sessions. TRACK: Add to dashboard. ARCHIVE: Remove from dashboard. CONFIGURE: Update prefs."),
+      .describe("REGISTER: Acknowledge unregistered sessions. TRACK: Add to dashboard. ARCHIVE: Remove tracked sessions from dashboard (untrack). CONFIGURE: Update prefs."),
     selection: z.object({
       ids: z.array(z.string()).optional().describe("Specific session IDs to target."),
-      target: z.enum(["discovered", "active", "completed", "all"]).optional()
-        .describe("Target groups: 'discovered' (unacknowledged), 'active' (running), 'completed' (finished/failed), or 'all'."),
+      target: z.enum(["unregistered", "active", "completed", "tracked", "all"]).optional()
+        .describe("Target groups: 'unregistered' (not yet acknowledged), 'tracked' (in dashboard), 'active' (running), 'completed' (finished/failed), or 'all'."),
+      state: z.enum(["active", "completed", "failed", "awaiting_feedback", "running", "all"]).optional()
+        .describe("Filter target by session state. Only applies when 'target' is used."),
+      since: z.enum(["1h", "6h", "24h", "7d", "30d", "all"]).optional()
+        .describe("Filter target by creation time. Only applies when 'target' is used."),
     }).refine(s => s.ids || s.target, "Must provide either 'ids' or 'target'."),
     prefs: z.object({
       approval: z.enum(["auto", "confirm", "strict"]).optional(),
@@ -312,7 +316,7 @@ export const manage_sessions = createTool({
   }),
   execute: async (ctx, args): Promise<string> => {
     const result = await ctx.runAction(
-      internal.sessions.sessionManager.getAllSessionsWithInfo,
+      internal.sessions.sessionManager.getAllSessionsBasic,
       {},
     ) as SessionQueryResult;
 
@@ -322,16 +326,46 @@ export const manage_sessions = createTool({
     let targetIds: string[] = args.selection.ids || [];
 
     if (args.selection.target) {
-      const filtered = sessions.filter((s: SessionInfo) => {
+      let filtered = sessions;
+
+      // Apply state filter
+      if (args.selection.state && args.selection.state !== "all") {
+        filtered = filtered.filter((s: SessionInfo) => {
+          const st = (s.state || "").toLowerCase();
+          switch (args.selection.state) {
+            case "active": return st !== "completed" && st !== "failed" && st !== "awaiting_user_feedback";
+            case "completed": return st === "completed";
+            case "failed": return st === "failed";
+            case "awaiting_feedback": return st === "awaiting_user_feedback";
+            case "running": return st === "running";
+            default: return true;
+          }
+        });
+      }
+
+      // Apply time filter
+      if (args.selection.since && args.selection.since !== "all") {
+        const sinceHours: Record<string, number> = { "1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720 };
+        const hours = sinceHours[args.selection.since] || 0;
+        const cutoff = Date.now() - hours * 60 * 60 * 1000;
+        filtered = filtered.filter((s: SessionInfo) => {
+          const created = s.lastActivity ? new Date(s.lastActivity).getTime() : 0;
+          return created >= cutoff;
+        });
+      }
+
+      // Apply target group filter
+      const groupFiltered = filtered.filter((s: SessionInfo) => {
         switch (args.selection.target) {
-          case "discovered": return !s.acknowledged;
+          case "unregistered": return !s.acknowledged;
+          case "tracked": return s.inDashboard;
           case "active": return s.state !== "completed" && s.state !== "failed";
           case "completed": return s.state === "completed" || s.state === "failed";
           case "all": return true;
           default: return false;
         }
       });
-      const groupIds = filtered.map((s: SessionInfo) => s.julesSessionId);
+      const groupIds = groupFiltered.map((s: SessionInfo) => s.julesSessionId);
       targetIds = Array.from(new Set([...targetIds, ...groupIds]));
     }
 

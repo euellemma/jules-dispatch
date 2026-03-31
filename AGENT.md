@@ -29,16 +29,24 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
   - `create_session` — Create a new Jules session (with github repo, branch, prefs)
   - `update_task_list` / `delete_task_list` — Persistent task list management
   - `handle_files` — Process files from the "Silent Inbox" (register or delete)
-  - `query_sessions` — Browse/manage sessions via Session Manager sub-agent
-  - `manage_sessions` — Bulk session actions: REGISTER, TRACK, ARCHIVE, CONFIGURE
+  - `query_sessions` — Browse/manage sessions via Session Manager sub-agent (on-demand discovery)
+  - `manage_sessions` — Bulk session actions: REGISTER, TRACK, ARCHIVE, CONFIGURE (uses lightweight query, no PR metadata)
   - `fetch_session_files` — Extract file(s) from a Jules session (show/send/read modes, zip support)
   - `exa_search`, `exa_get_contents`, `exa_find_similar`, `research` — Re-exported from `exa_search.ts`
 - **`convex/tools/exa_search.ts`**: The Research Agent engine. Supports dynamic context injection from files and web search via Exa.
-- **`convex/tools/nodeActions.ts`**: Pure Node.js bridge for operations that require the Node runtime (Telegram document/zip uploads, Jules SDK client).
+- **`convex/tools/nodeActions.ts`**: Pure Node.js bridge for operations that require the Node runtime (Telegram document/zip uploads, Jules SDK client). Resolves Jules API key via single-query `getProviderConfigByThreadId`.
 - **`convex/sessions/actions.ts`**: Node bridge to the `@google/jules-sdk`. Handles `createSession`, `sendMessage`, `approvePlan`, `sendTelegramMessage`, `getSessionActivities`.
-- **`convex/sessions/sessionManager.ts`**: Session manager actions (`getAllSessionsWithInfo`, `getSessionDetails`) for merging Jules API sessions with DB metadata.
-- **`convex/sessions/sessionManagerAgent.ts`**: Session Manager sub-agent with `list_sessions` (fuzzy search) and `inspect_session` tools. Spawned by `spawnSessionManagerAgent()`.
-- **`convex/sessions/db.ts`**: Session table CRUD (`addSession`, `updateSessionState`, `getAllSessions`, `getDashboardSessions`, `getUnacknowledgedSessions`, `upsertDiscoveredSession`, `bulkUpdateSessions`, `archiveSession`, `saveSessionOutputs`, `getSessionOutputs`, `getSessionByJulesId`).
+- **`convex/sessions/sessionManager.ts`**: Session manager actions:
+  - `getAllSessionsBasic` — Lightweight session list (no PR metadata). Used by `manage_sessions`.
+  - `getAllSessionsWithInfo` — Full session list with batch PR metadata. Used by `query_sessions` / `list_sessions`.
+  - `getSessionDetails` — Fetches details + activity log for specific sessions. Accepts optional pre-fetched sessions array to avoid re-fetching.
+  - **No auto-discovery** — all functions are pure read, no side effects.
+- **`convex/sessions/sessionManagerAgent.ts`**: Session Manager sub-agent with `list_sessions` (fuzzy search) and `inspect_session` tools. Local tool closures use pre-fetched sessions array passed from `query_sessions` — no re-fetching inside the sub-agent.
+- **`convex/sessions/db.ts`**: Session table CRUD:
+  - `addSession`, `updateSessionState`, `getAllSessions`, `getDashboardSessions`, `getActiveSessions`, `getUnacknowledgedSessions`, `upsertDiscoveredSession`
+  - `getBulkSessionOutputs` — Batch PR metadata query (returns `Map<julesSessionId, outputs[]>`). Eliminates N+1 pattern.
+  - `bulkUpdateSessions` — Single `collect()` + batch patch. Returns `{ updated }` count. Supports `repo` field.
+  - `saveSessionOutputs`, `getSessionOutputs`, `getSessionByJulesId`
 - **`convex/files/db.ts`**: Database for the "Silent Inbox" and registered user files.
 
 ### 🌐 Settings Web App (React Frontend)
@@ -54,7 +62,11 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 - **`web/index.html`**: HTML template.
 
 ### 📡 System & Sync
-- **`convex/polling/actions.ts`**: Background sync engine between Jules worker and Convex Orchestrator (polled every 30s via `convex/crons.ts`). Handles new session discovery, state changes, and message forwarding.
+- **`convex/polling/actions.ts`**: Background sync engine between Jules worker and Convex Orchestrator (polled every 30s via `convex/crons.ts`). Handles state changes and message forwarding.
+  - **Single `sessions().all()` call** — builds a session map, no per-session `info()` calls.
+  - **Activity filtering** — uses `filter: create_time>"..."` for incremental fetches.
+  - **Model cache** — resolves language model once per thread at the top of the poll cycle.
+  - **No fallback hell** — if `sessions().all()` fails, the entire poll cycle is skipped with a log. No per-session fallbacks that multiply API calls.
 - **`convex/api/telegram.ts`**: Telegram message processing. Contains `processTelegramUpdate` (webhook + bot entry point), `processMessageQueue`, `sendChatMessage`, `sendChatDocument`, `downloadAndStoreFile`.
 - **`convex/api/utils.ts`**: Telegram API client, HTML sanitization, and message formatting.
 - **`convex/http.ts`**: Convex HTTP Router. Contains:
@@ -70,6 +82,7 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 
 ### 🔐 Authentication & Configuration
 - **`convex/users/db.ts`**: Consolidated database functions for user state, provider configurations, auth sessions, thread cycling, pending messages, and agent running state.
+  - `getProviderConfigByThreadId` — Single query: threadId → telegramChatId + providerConfig + julesApiKey. Replaces the previous two-query chain (getChatIdForThread → getProviderConfig).
 - **`convex/users/actions.ts`**: Node actions for provider configuration (e.g., `testConnection`).
 - **`convex/auth_html.ts`**: HTML templates for error pages.
 
@@ -131,7 +144,7 @@ Jules Dispatch uses a tiered context architecture to maintain efficiency:
 
 1. **Main Agent (Conversationalist):** Never reads large files directly. It sees metadata (Inbox/Dashboard) and uses **Delegation** to handle complexity.
 2. **Research Agent (Fact Extractor):** A specialized sub-agent spawned to analyze specific files or web content. It synthesizes answers and returns high-signal data to the Main Agent.
-3. **Session Manager (Discovery Expert):** A specialized sub-agent for managing 100+ Jules sessions. It handles fuzzy searching across titles, repos, and PR metadata.
+3. **Session Manager (Discovery Expert):** A specialized sub-agent for managing 100+ Jules sessions. It handles fuzzy searching across titles, repos, and PR metadata. Receives pre-fetched sessions array — no re-fetching inside the sub-agent.
 4. **Silent Inbox:** User uploads are stored in Convex File Storage and added to a "Silent Inbox" row. The LLM is NOT woken up on upload, reducing cost and noise.
 
 ---
@@ -140,21 +153,39 @@ Jules Dispatch uses a tiered context architecture to maintain efficiency:
 
 To handle 100+ concurrent sessions without context bloat, Jules Dispatch implements an "Iceberg" model for session context:
 
+### Discovery Model
+- **On-demand only** — sessions are NOT discovered automatically in the background.
+- `query_sessions` is the sole entry point for discovery. It calls `getAllSessionsWithInfo` once, then passes the results into the Session Manager sub-agent.
+- `getAllSessionsBasic` is a lightweight variant (no PR metadata) used by `manage_sessions`.
+
 ### Tiered Context Injection
 1. **Warm Context (Injected):**
    - **Tracked Sessions:** Sessions marked `inDashboard: true`.
-   - **Active Untracked:** Sessions that are still running (`isActive: true`) but not in the dashboard.
-2. **Cold Context (Summarized):**
-   - **Discovered Count:** Total unacknowledged sessions. If ≤10, IDs are listed; otherwise, only the count is shown.
-   - **Archived Count:** Total completed/failed sessions not in the dashboard.
+   - **Active Untracked:** Sessions that are acknowledged but not in the dashboard, and still running.
+2. **Context handler uses single DB query** — one `getAllSessions` call, client-side filtering replaces the previous 3 separate queries.
 
 ### Intent-Based Bulk Actions
 - **`manage_sessions`**: Single tool for `REGISTER`, `TRACK`, `ARCHIVE`, and `CONFIGURE`.
-- **Bulk Selection**: Supports targeting specific `ids` or broad groups via `target` (`discovered`, `active`, `completed`, `all`).
+- **Bulk Selection**: Supports targeting specific `ids` or broad groups via `target` (`unregistered`, `active`, `completed`, `tracked`, `all`).
 - **Bulk Prefs**: Interaction preferences (approval/verbosity) can be applied to entire groups in one call.
 
 ### Fuzzy Discovery
 - **`list_sessions`**: Used by the Session Manager sub-agent to perform "lossy" subsequence/substring matching across session titles, repository names, and associated Pull Request metadata.
+- **Batch PR metadata**: `getBulkSessionOutputs` replaces the N+1 pattern — one DB query groups all outputs by session ID.
+
+### Repo Field
+- The `julesSessions` table has a `repo` field (`v.optional(v.string())`) storing `"owner/repo"` extracted from the Jules API `source.githubRepo` object.
+- Defaults to `"repoless"` for sessions without a GitHub source or malformed source objects.
+- The previous incorrect extraction (`source.github`) has been replaced with `source.githubRepo.owner/githubRepo.repo`.
+
+### Pre-Fetch Data Flow
+```
+query_sessions → getAllSessionsWithInfo (1 Jules API call + 1 bulk DB query)
+  → spawnSessionManagerAgent(sessions, prompt)
+    → local_list_sessions uses sessions[] (no re-fetch)
+    → local_manage_sessions uses sessions[] (no re-fetch)
+    → local_inspect_session passes sessions[] to getSessionDetails (no re-fetch)
+```
 
 ---
 
@@ -173,6 +204,12 @@ Instead of keeping all raw messages, the system continuously compresses the conv
 ```
 messages → memory (observations) → dashboard → tasks → files
 ```
+
+### Session Context Optimization
+- **Single DB query** — `getAllSessions` replaces the previous 3 separate queries (`getDashboardSessions`, `getActiveSessions`, `getUnacknowledgedSessions`).
+- Client-side filtering splits sessions into tracked and active untracked.
+- Unregistered sessions section removed from context (discovery is on-demand now).
+- If the DB query fails, the agent turn continues without session context (logged, not crashed).
 
 ### Thresholds
 | Trigger | Value | Purpose |
@@ -337,6 +374,22 @@ npx @convex-dev/static-hosting upload --build --prod
 - **Webhook** (`/telegram`): Used in production. Telegram sends updates directly to Convex.
 - **Internal Bot API** (`/bot/message`): Used by the local Grammy polling bot in dev. Accepts a structured payload, not raw Telegram JSON.
 - Both call the same `processTelegramUpdate()` function.
+
+### 6. No Fallback Hell Policy
+- **Rule:** Never add a fallback that multiplies API calls. If a batch operation fails, skip the cycle and log it.
+- **Example removed:** The polling fallback that did per-session `session.info()` when `sessions().all()` failed was eliminated. This was the original source of N+1 API explosion.
+- **Allowed:** Graceful degradation that returns less data (e.g., DB-only sessions when Jules API is down). Not allowed: fallbacks that re-fetch the same data through a slower path.
+
+### 7. Jules SDK `source` Structure
+- `source` is NOT a string. There is no `source.github` property.
+- Correct path: `source?.githubRepo?.owner + "/" + source?.githubRepo?.repo`.
+- If `source` is undefined or `githubRepo` is missing, the session is **repoless** — use `"repoless"` as the default.
+- The `julesSessions` table has a `repo` field to store this extracted value.
+
+### 8. `sessions().all()` vs `session.info()`
+- Both return the same `SessionResource` fields: `id`, `title`, `state`, `source`, `createTime`, `outputs`.
+- **Never call `session.info()` if you already have the session from `sessions().all()`.**
+- In Convex stateless actions, the SDK's in-memory cache is always empty — every call hits the network.
 
 ---
 

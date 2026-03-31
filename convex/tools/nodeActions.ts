@@ -9,21 +9,12 @@ import { INITIAL_CONFIG } from "../config/initial";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getJulesApiKey(ctx: any, threadId?: string): Promise<string> {
   if (threadId) {
-    const user = await ctx.runQuery(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (internal as any).users.db.getChatIdForThread,
+    const res = await ctx.runQuery(
+      (internal as any).users.db.getProviderConfigByThreadId,
       { threadId }
-    ) as string | null;
+    ) as { julesApiKey?: string } | null;
 
-    if (user) {
-      const res = await ctx.runQuery(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (internal as any).users.db.getProviderConfig,
-        { telegramChatId: user }
-      ) as { julesApiKey?: string };
-
-      if (res?.julesApiKey) return res.julesApiKey;
-    }
+    if (res?.julesApiKey) return res.julesApiKey;
   }
 
   // Fall back to initial config (for testing mode cron jobs)
@@ -32,7 +23,7 @@ async function getJulesApiKey(ctx: any, threadId?: string): Promise<string> {
   }
 
   throw new Error(
-    "Jules API key not configured. Re-run the setup wizard or use /connect."
+    "Jules API key not configured. Use /connect to set it up."
   );
 }
 

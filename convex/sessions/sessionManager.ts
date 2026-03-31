@@ -61,70 +61,156 @@ function formatActivityLog(activities: Array<{ type?: string; createTime?: strin
   }).join('\n');
 }
 
+function extractRepo(js: JulesApiSession): string {
+  try {
+    if (js.source?.githubRepo) {
+      return `${js.source.githubRepo.owner}/${js.source.githubRepo.repo}`;
+    }
+  } catch {
+    // ignore
+  }
+  return "repoless";
+}
+
 /**
- * getAllSessionsWithInfo — fetch all Jules sessions merged with DB metadata.
- * Used to populate the session manager sub-agent's context.
+ * getAllSessionsBasic — fetch all Jules sessions merged with DB metadata (no PR metadata).
+ * Used by manage_sessions which doesn't need fuzzy search data.
  */
-export const getAllSessionsWithInfo = internalAction({
+export const getAllSessionsBasic = internalAction({
   args: {
     threadId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<SessionQueryResult> => {
-    const [julesSessions, dbSessions] = await Promise.all([
-      fetchAllJulesSessions(ctx, args.threadId),
-      ctx.runQuery(internal.sessions.db.getAllSessions, {}),
-    ]);
+    let julesSessions: JulesApiSession[];
+    let dbSessions: JulesSessionDoc[];
 
-    const dbMap = new Map(dbSessions.map((s: JulesSessionDoc) => [s.julesSessionId, s]));
-
-    // Auto-discover new sessions
-    for (const js of julesSessions) {
-      if (!dbMap.has(js.id)) {
-        await ctx.runMutation(internal.sessions.db.upsertDiscoveredSession, {
-          julesSessionId: js.id,
-          lastKnownState: js.state,
-        });
-        dbMap.set(js.id, {
-          _id: "" as unknown as import("../_generated/dataModel").Id<"julesSessions">,
-          _creationTime: Date.now(),
-          julesSessionId: js.id,
-          threadId: "",
-          shortName: js.title,
-          lastProcessedActivityTime: 0,
-          lastKnownState: js.state,
-          isActive: js.state !== "completed" && js.state !== "failed",
-          origin: "discovered",
-          acknowledged: false,
-          inDashboard: false,
-          prefs: { approval: "confirm", verbosity: "milestones" },
-        });
+    try {
+      [julesSessions, dbSessions] = await Promise.all([
+        fetchAllJulesSessions(ctx, args.threadId),
+        ctx.runQuery(internal.sessions.db.getAllSessions, {}),
+      ]);
+    } catch (error) {
+      console.error("Error in getAllSessionsBasic:", error);
+      try {
+        dbSessions = await ctx.runQuery(internal.sessions.db.getAllSessions, {});
+        const dbOnly: SessionInfo[] = dbSessions.map((db: JulesSessionDoc) => ({
+          julesSessionId: db.julesSessionId,
+          title: db.shortName,
+          state: db.lastKnownState,
+          repo: db.repo || "repoless",
+          shortName: db.shortName,
+          origin: db.origin,
+          acknowledged: db.acknowledged,
+          inDashboard: db.inDashboard,
+          prefs: db.prefs,
+        }));
+        return { success: true, sessions: dbOnly };
+      } catch {
+        return { success: false, error: "Failed to fetch sessions from DB" };
       }
     }
 
-    // Parallel fetch PR metadata for fuzzy matching
-    const sessionsWithMetadata: SessionInfo[] = await Promise.all(julesSessions.map(async (js: JulesApiSession) => {
-      const db = dbMap.get(js.id);
-      const outputs = await ctx.runQuery(internal.sessions.db.getSessionOutputs, { julesSessionId: js.id });
-      const prMetadata = outputs.filter((o: SessionOutputDoc) => o.type === "pullRequest").map((o: SessionOutputDoc) => ({
-        title: o.title,
-        description: o.description,
-      }));
+    const dbMap = new Map(dbSessions.map((s: JulesSessionDoc) => [s.julesSessionId, s]));
 
-      const sessionInfo: SessionInfo = {
+    const sessions: SessionInfo[] = julesSessions.map((js: JulesApiSession) => {
+      const db = dbMap.get(js.id);
+      return {
         julesSessionId: js.id,
         title: js.title || db?.shortName,
         state: js.state || db?.lastKnownState,
-        repo: js.source?.github,
+        repo: db?.repo || extractRepo(js),
         shortName: db?.shortName,
         origin: (db?.origin as "agent" | "discovered") || "discovered",
         acknowledged: db?.acknowledged ?? false,
         inDashboard: db?.inDashboard ?? false,
         prefs: db?.prefs,
         lastActivity: js.createTime ? new Date(js.createTime).toLocaleString() : undefined,
+        createTimeMs: js.createTime ? new Date(js.createTime).getTime() : undefined,
+      };
+    });
+
+    return { success: true, sessions };
+  },
+});
+
+/**
+ * getAllSessionsWithInfo — fetch all Jules sessions merged with DB metadata + PR metadata.
+ * Used by query_sessions / list_sessions which need full metadata for fuzzy search.
+ */
+export const getAllSessionsWithInfo = internalAction({
+  args: {
+    threadId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<SessionQueryResult> => {
+    let julesSessions: JulesApiSession[];
+    let dbSessions: JulesSessionDoc[];
+
+    try {
+      [julesSessions, dbSessions] = await Promise.all([
+        fetchAllJulesSessions(ctx, args.threadId),
+        ctx.runQuery(internal.sessions.db.getAllSessions, {}),
+      ]);
+    } catch (error) {
+      console.error("Error in getAllSessionsWithInfo:", error);
+      try {
+        dbSessions = await ctx.runQuery(internal.sessions.db.getAllSessions, {});
+        const dbOnly: SessionInfo[] = dbSessions.map((db: JulesSessionDoc) => ({
+          julesSessionId: db.julesSessionId,
+          title: db.shortName,
+          state: db.lastKnownState,
+          repo: db.repo || "repoless",
+          shortName: db.shortName,
+          origin: db.origin,
+          acknowledged: db.acknowledged,
+          inDashboard: db.inDashboard,
+          prefs: db.prefs,
+        }));
+        return { success: true, sessions: dbOnly };
+      } catch {
+        return { success: false, error: "Failed to fetch sessions from DB" };
+      }
+    }
+
+    const dbMap = new Map(dbSessions.map((s: JulesSessionDoc) => [s.julesSessionId, s]));
+
+    // Batch PR metadata query (eliminate N+1)
+    let outputsMap = new Map<string, SessionOutputDoc[]>();
+    try {
+      const sessionIds = julesSessions.map((js: JulesApiSession) => js.id);
+      if (sessionIds.length > 0) {
+        outputsMap = await ctx.runQuery(internal.sessions.db.getBulkSessionOutputs, {
+          julesSessionIds: sessionIds,
+        });
+      }
+    } catch (error) {
+      console.warn("Bulk PR metadata query failed, proceeding without PR metadata:", error);
+    }
+
+    const sessionsWithMetadata: SessionInfo[] = julesSessions.map((js: JulesApiSession) => {
+      const db = dbMap.get(js.id);
+      const outputs = outputsMap.get(js.id) || [];
+      const prMetadata = outputs
+        .filter((o: SessionOutputDoc) => o.type === "pullRequest")
+        .map((o: SessionOutputDoc) => ({
+          title: o.title,
+          description: o.description,
+        }));
+
+      return {
+        julesSessionId: js.id,
+        title: js.title || db?.shortName,
+        state: js.state || db?.lastKnownState,
+        repo: db?.repo || extractRepo(js),
+        shortName: db?.shortName,
+        origin: (db?.origin as "agent" | "discovered") || "discovered",
+        acknowledged: db?.acknowledged ?? false,
+        inDashboard: db?.inDashboard ?? false,
+        prefs: db?.prefs,
+        lastActivity: js.createTime ? new Date(js.createTime).toLocaleString() : undefined,
+        createTimeMs: js.createTime ? new Date(js.createTime).getTime() : undefined,
         prMetadata,
       };
-      return sessionInfo;
-    }));
+    });
 
     return { success: true, sessions: sessionsWithMetadata };
   },
@@ -138,30 +224,96 @@ export const getSessionDetails = internalAction({
   args: {
     sessionIds: v.array(v.string()),
     threadId: v.optional(v.string()),
+    sessions: v.optional(v.array(v.object({
+      julesSessionId: v.string(),
+      title: v.optional(v.string()),
+      state: v.optional(v.string()),
+      repo: v.optional(v.string()),
+      shortName: v.optional(v.string()),
+      origin: v.union(v.literal("agent"), v.literal("discovered")),
+      acknowledged: v.boolean(),
+      inDashboard: v.boolean(),
+      prefs: v.optional(v.object({
+        approval: v.union(v.literal("auto"), v.literal("confirm"), v.literal("strict")),
+        verbosity: v.union(v.literal("silent"), v.literal("milestones"), v.literal("full")),
+      })),
+    }))),
   },
   handler: async (ctx, args): Promise<SessionQueryResult> => {
-    const [julesSessions, dbSessions] = await Promise.all([
-      fetchAllJulesSessions(ctx, args.threadId),
-      ctx.runQuery(internal.sessions.db.getAllSessions, {}),
-    ]);
+    const preFetchedMap = new Map<string, {
+      julesSessionId: string;
+      title?: string;
+      state?: string;
+      repo?: string;
+      shortName?: string;
+      origin: "agent" | "discovered";
+      acknowledged: boolean;
+      inDashboard: boolean;
+      prefs?: {
+        approval: "auto" | "confirm" | "strict";
+        verbosity: "silent" | "milestones" | "full";
+      };
+    }>();
+    if (args.sessions && args.sessions.length > 0) {
+      for (const s of args.sessions) {
+        preFetchedMap.set(s.julesSessionId, s);
+      }
+    }
 
-    const dbMap = new Map(dbSessions.map((s: JulesSessionDoc) => [s.julesSessionId, s]));
+    let julesSessions: JulesApiSession[] = [];
+    let dbMap = new Map<string, JulesSessionDoc>();
+
+    if (!args.sessions || args.sessions.length === 0) {
+      try {
+        [julesSessions, dbMap] = await Promise.all([
+          fetchAllJulesSessions(ctx, args.threadId).then(sessions => {
+            const filtered = sessions.filter((js: JulesApiSession) =>
+              args.sessionIds.includes(js.id)
+            );
+            return filtered;
+          }),
+          ctx.runQuery(internal.sessions.db.getAllSessions, {}).then(dbSessions =>
+            new Map(dbSessions.map((s: JulesSessionDoc) => [s.julesSessionId, s]))
+          ),
+        ]);
+      } catch (error) {
+        console.error("Error in getSessionDetails:", error);
+        return { success: false, error: "Failed to fetch session details" };
+      }
+    }
 
     const results: SessionInfo[] = [];
     for (const id of args.sessionIds) {
+      const preFetched = preFetchedMap.get(id);
       const js = julesSessions.find((s: JulesApiSession) => s.id === id);
       const db = dbMap.get(id);
+
+      if (!preFetched && !js && !db) {
+        results.push({
+          julesSessionId: id,
+          title: undefined,
+          state: "not_found",
+          repo: "repoless",
+          origin: "discovered",
+          acknowledged: false,
+          inDashboard: false,
+          lastActivity: "(session not found)",
+        });
+        continue;
+      }
+
       const activities = await fetchSessionActivities(ctx, args.threadId, id);
+
       results.push({
         julesSessionId: id,
-        title: js?.title || db?.shortName,
-        state: js?.state || db?.lastKnownState,
-        repo: js?.source?.github,
-        shortName: db?.shortName,
-        origin: db?.origin || "discovered",
-        acknowledged: db?.acknowledged || false,
-        inDashboard: db?.inDashboard || false,
-        prefs: db?.prefs,
+        title: preFetched?.title || js?.title || db?.shortName,
+        state: preFetched?.state || js?.state || db?.lastKnownState,
+        repo: preFetched?.repo || db?.repo || (js ? extractRepo(js) : "repoless"),
+        shortName: preFetched?.shortName || db?.shortName,
+        origin: (preFetched?.origin || db?.origin || "discovered") as "agent" | "discovered",
+        acknowledged: preFetched?.acknowledged ?? db?.acknowledged ?? false,
+        inDashboard: preFetched?.inDashboard ?? db?.inDashboard ?? false,
+        prefs: preFetched?.prefs || db?.prefs,
         lastActivity: activities,
       });
     }

@@ -110,44 +110,6 @@ export const upsertDiscoveredSession = internalMutation({
   }
 });
 
-export const bulkUpdateSessions = internalMutation({
-  args: {
-    julesSessionIds: v.array(v.string()),
-    updates: v.object({
-      acknowledged: v.optional(v.boolean()),
-      inDashboard: v.optional(v.boolean()),
-      prefs: v.optional(v.object({
-        approval: v.optional(v.union(v.literal("auto"), v.literal("confirm"), v.literal("strict"))),
-        verbosity: v.optional(v.union(v.literal("silent"), v.literal("milestones"), v.literal("full"))),
-      })),
-    }),
-  },
-  handler: async (ctx, args) => {
-    for (const jid of args.julesSessionIds) {
-      const session = await ctx.db
-        .query("julesSessions")
-        .withIndex("by_julesSessionId", (q) => q.eq("julesSessionId", jid))
-        .unique();
-      
-      if (!session) continue;
-
-      const patch: Record<string, any> = {};
-      if (args.updates.acknowledged !== undefined) patch.acknowledged = args.updates.acknowledged;
-      if (args.updates.inDashboard !== undefined) patch.inDashboard = args.updates.inDashboard;
-      if (args.updates.prefs !== undefined) {
-        patch.prefs = {
-          approval: args.updates.prefs.approval ?? session.prefs?.approval ?? "confirm",
-          verbosity: args.updates.prefs.verbosity ?? session.prefs?.verbosity ?? "milestones",
-        };
-      }
-
-      if (Object.keys(patch).length > 0) {
-        await ctx.db.patch(session._id, patch);
-      }
-    }
-  },
-});
-
 export const saveSessionOutputs = internalMutation({
   args: {
     julesSessionId: v.string(),
@@ -233,4 +195,63 @@ export const getSessionByJulesId = internalQuery({
       .withIndex("by_julesSessionId", (q) => q.eq("julesSessionId", args.julesSessionId))
       .unique();
   }
+});
+
+export const getBulkSessionOutputs = internalQuery({
+  args: { julesSessionIds: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const allOutputs = await ctx.db.query("sessionOutputs").collect();
+    const map = new Map<string, typeof allOutputs>();
+    for (const o of allOutputs) {
+      if (args.julesSessionIds.includes(o.julesSessionId)) {
+        const arr = map.get(o.julesSessionId) || [];
+        arr.push(o);
+        map.set(o.julesSessionId, arr);
+      }
+    }
+    return map;
+  },
+});
+
+export const bulkUpdateSessions = internalMutation({
+  args: {
+    julesSessionIds: v.array(v.string()),
+    updates: v.object({
+      acknowledged: v.optional(v.boolean()),
+      inDashboard: v.optional(v.boolean()),
+      prefs: v.optional(v.object({
+        approval: v.optional(v.union(v.literal("auto"), v.literal("confirm"), v.literal("strict"))),
+        verbosity: v.optional(v.union(v.literal("silent"), v.literal("milestones"), v.literal("full"))),
+      })),
+      repo: v.optional(v.string()),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const allSessions = await ctx.db.query("julesSessions").collect();
+    const matching = allSessions.filter(s => args.julesSessionIds.includes(s.julesSessionId));
+    
+    let updated = 0;
+    for (const session of matching) {
+      try {
+        const patch: Record<string, any> = {};
+        if (args.updates.acknowledged !== undefined) patch.acknowledged = args.updates.acknowledged;
+        if (args.updates.inDashboard !== undefined) patch.inDashboard = args.updates.inDashboard;
+        if (args.updates.repo !== undefined) patch.repo = args.updates.repo;
+        if (args.updates.prefs !== undefined) {
+          patch.prefs = {
+            approval: args.updates.prefs.approval ?? session.prefs?.approval ?? "confirm",
+            verbosity: args.updates.prefs.verbosity ?? session.prefs?.verbosity ?? "milestones",
+          };
+        }
+
+        if (Object.keys(patch).length > 0) {
+          await ctx.db.patch(session._id, patch);
+          updated++;
+        }
+      } catch (error) {
+        console.error(`Failed to patch session ${session.julesSessionId}:`, error);
+      }
+    }
+    return { updated };
+  },
 });

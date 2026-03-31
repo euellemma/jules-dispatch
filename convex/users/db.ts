@@ -67,6 +67,23 @@ export const getProviderConfig = internalQuery({
   },
 });
 
+export const getProviderConfigByThreadId = internalQuery({
+  args: { threadId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .first();
+    if (!user) return null;
+    return {
+      telegramChatId: user.telegramChatId,
+      providerConfig: user.providerConfig || null,
+      julesApiKey: user.julesApiKey,
+      exaApiKey: user.exaApiKey,
+    };
+  },
+});
+
 export const updateJulesApiKey = internalMutation({
   args: { telegramChatId: v.string(), apiKey: v.string() },
   handler: async (ctx, args) => {

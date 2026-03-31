@@ -3,16 +3,17 @@ import { components, internal } from "../_generated/api";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { manage_sessions } from "../tools/index";
+import type { SessionInfo } from "../types";
 
 const anthropic = createAnthropic({
   baseURL: "https://opencode.ai/zen/go/v1/",
   apiKey: process.env.OPENCODE_GO_API_KEY,
 });
 
-function formatSessionsForContext(sessions: any[]): string {
+function formatSessionsForContext(sessions: SessionInfo[]): string {
   const tracked = sessions.filter(s => s.inDashboard);
-  const activeUntracked = sessions.filter(s => !s.inDashboard && (s.state !== "completed" && s.state !== "failed"));
-  const discovered = sessions.filter(s => !s.acknowledged);
+  const activeUntracked = sessions.filter(s => s.acknowledged && !s.inDashboard && (s.state !== "completed" && s.state !== "failed"));
+  const unregistered = sessions.filter(s => !s.acknowledged);
   const archived = sessions.filter(s => s.acknowledged && !s.inDashboard && (s.state === "completed" || s.state === "failed"));
 
   const lines: string[] = [];
@@ -28,7 +29,7 @@ function formatSessionsForContext(sessions: any[]): string {
     lines.push("(no tracked sessions)");
   }
 
-  lines.push("\n## Active Untracked Sessions");
+  lines.push("\n## Active Untracked Sessions (registered, not in dashboard)");
   if (activeUntracked.length > 0) {
     activeUntracked.forEach(s => {
       lines.push(`ID: ${s.julesSessionId} | ${s.title || s.shortName || 'untitled'} | ${s.state || 'unknown'}`);
@@ -39,21 +40,51 @@ function formatSessionsForContext(sessions: any[]): string {
   }
 
   lines.push(`\n## Summary of Others`);
-  lines.push(`- Discovered: ${discovered.length} sessions (needs registration).`);
-  lines.push(`- Archived: ${archived.length} completed sessions.`);
+  lines.push(`- Unregistered: ${unregistered.length} sessions from Jules API (not yet registered).`);
+  lines.push(`- Archived: ${archived.length} completed/failed sessions.`);
   lines.push("\nUse 'list_sessions' to discover or search for sessions not listed here.");
 
   return lines.join("\n");
 }
 
+function resolveSinceHours(since: string): number | null {
+  switch (since) {
+    case "1h": return 1;
+    case "6h": return 6;
+    case "24h": return 24;
+    case "7d": return 24 * 7;
+    case "30d": return 24 * 30;
+    case "all": return null;
+    default: return null;
+  }
+}
+
+function filterByState(session: SessionInfo, state: string): boolean {
+  const s = (session.state || "").toLowerCase();
+  switch (state) {
+    case "active": return s !== "completed" && s !== "failed" && s !== "awaiting_user_feedback";
+    case "completed": return s === "completed";
+    case "failed": return s === "failed";
+    case "awaiting_feedback": return s === "awaiting_user_feedback";
+    case "running": return s === "running";
+    case "all": return true;
+    default: return true;
+  }
+}
+
 /**
  * list_sessions — Internal tool for the session manager sub-agent.
+ * Discovers sessions from Jules API on-demand with time/state filtering.
  */
 export const list_sessions = createTool({
-  description: "Browse or search all Jules sessions (including discovered and archived).",
+  description: "Browse or search ALL Jules sessions. Discovers from Jules API on-demand. Filters by time (since) and state. Use 'topic' for fuzzy search on titles, repos, and PR metadata.",
   inputSchema: z.object({
-    filter: z.enum(["tracked", "active", "discovered", "archived", "all"])
-      .describe("Which group to list."),
+    since: z.enum(["1h", "6h", "24h", "7d", "30d", "all"])
+      .default("24h")
+      .describe("Only return sessions created within this time window. Default '24h'."),
+    state: z.enum(["active", "completed", "failed", "awaiting_feedback", "running", "all"])
+      .default("all")
+      .describe("Filter by session state. 'active' = running sessions only. Default 'all'."),
     topic: z.string().optional().describe("Fuzzy search term for titles, repo names, and PR metadata."),
   }),
   execute: async (ctx, args): Promise<string> => {
@@ -64,22 +95,24 @@ export const list_sessions = createTool({
 
     if (!result.success) return "Error fetching sessions.";
 
-    let filtered = result.sessions as any[];
+    let filtered = result.sessions as SessionInfo[];
 
-    // 1. Apply State Filter
-    if (args.filter !== "all") {
+    // 1. Apply Time Filter (since)
+    const sinceHours = resolveSinceHours(args.since);
+    if (sinceHours !== null) {
+      const cutoff = Date.now() - sinceHours * 60 * 60 * 1000;
       filtered = filtered.filter(s => {
-        switch (args.filter) {
-          case "tracked": return s.inDashboard;
-          case "active": return s.state !== "completed" && s.state !== "failed";
-          case "discovered": return !s.acknowledged;
-          case "archived": return s.acknowledged && !s.inDashboard && (s.state === "completed" || s.state === "failed");
-          default: return true;
-        }
+        const created = s.createTimeMs || (s.lastActivity ? new Date(s.lastActivity).getTime() : 0);
+        return created >= cutoff;
       });
     }
 
-    // 2. Apply Fuzzy Topic Search
+    // 2. Apply State Filter
+    if (args.state !== "all") {
+      filtered = filtered.filter(s => filterByState(s, args.state));
+    }
+
+    // 3. Apply Fuzzy Topic Search
     if (args.topic) {
       const term = args.topic.toLowerCase();
       filtered = filtered.filter(s => {
@@ -99,7 +132,7 @@ export const list_sessions = createTool({
       return `| ${s.julesSessionId} | ${s.title || s.shortName || 'untitled'} | ${s.repo || 'none'} | ${s.state || 'unknown'} |`;
     }).join("\n");
 
-    return `### Session List (${args.filter}${args.topic ? ': ' + args.topic : ''})\n| ID | Title | Repo | State |\n|---|---|---|---|\n${table}\n\nTip: Use 'inspect_session(id)' to see full activity logs for a specific session.`;
+    return `### Session List (${args.since}, state=${args.state}${args.topic ? ', topic: ' + args.topic : ''})\nFound ${filtered.length} session(s)\n| ID | Title | Repo | State |\n|---|---|---|---|\n${table}\n\nTip: Use 'inspect_session(id)' to see full activity logs for a specific session.`;
   },
 });
 
@@ -139,65 +172,73 @@ A summary of tracked and active sessions is injected in your context. Use it to 
 
 ## Your Tools
 
-**list_sessions** — Browse or search through ALL sessions (including discovered/archived). Use this when the user asks to "find" or "list" something not in your immediate context.
+**list_sessions** — Discover and search ALL sessions from the Jules API. Supports filters:
+- since: "1h" | "6h" | "24h" | "7d" | "30d" | "all" — time window (default "24h")
+- state: "active" | "completed" | "failed" | "awaiting_feedback" | "running" | "all"
+- topic: fuzzy search on titles, repos, PR metadata
+Use this when the user asks to "find", "list", or "show" sessions.
 
 **inspect_session** — Fetch full details + activity log for a session. Call this when the user asks for deep details or logs.
 
-**manage_sessions** — Bulk manage sessions: REGISTER (ack discovered), TRACK (add to dashboard), ARCHIVE (remove from dashboard), or CONFIGURE (set prefs).
+**manage_sessions** — Bulk manage sessions:
+- REGISTER: Acknowledge unregistered sessions (marks them as known)
+- TRACK: Add sessions to the dashboard for active monitoring
+- ARCHIVE: Remove tracked sessions from the dashboard (untrack). Only works on tracked sessions.
+- CONFIGURE: Update approval/verbosity preferences
 
 ## Guidelines
-- Answer questions using the injected list or by calling list_sessions.
+- Discovery is on-demand — call list_sessions when the user asks about sessions.
 - Keep responses concise.
 - If you find sessions via list_sessions, tell the user you found them before taking action.
-- Use REGISTER to handle new discovered sessions.
+- Use REGISTER to handle unregistered sessions.
 - Use TRACK to move sessions to the user's dashboard.
+- Use ARCHIVE to untrack sessions from the dashboard.
 
 ## Selection Targets
 When calling manage_sessions, you can use 'target':
-- 'discovered': All unacknowledged sessions.
+- 'unregistered': All sessions not yet acknowledged.
+- 'tracked': All sessions currently in the dashboard.
 - 'active': All currently running sessions.
 - 'completed': All sessions that have finished or failed.
 - 'all': Everything.`;
 
 export async function spawnSessionManagerAgent(
   ctx: any,
-  sessions: any[],
+  sessions: SessionInfo[],
   userPrompt: string,
   originalThreadId: string,
 ): Promise<string> {
   const model = anthropic("minimax-m2.5");
 
-  // Define tools locally to capture originalThreadId
   const local_list_sessions = createTool({
     description: list_sessions.description,
     inputSchema: list_sessions.inputSchema,
     execute: async (subCtx, args) => {
-      const result = await subCtx.runAction(
-        internal.sessions.sessionManager.getAllSessionsWithInfo,
-        { threadId: originalThreadId },
-      ) as any;
+      if (!sessions || sessions.length === 0) {
+        return "No sessions available. Try refreshing.";
+      }
 
-      if (!result.success) return "Error fetching sessions.";
+      let filtered = [...sessions];
 
-      let filtered = result.sessions as any[];
-
-      // 1. Apply State Filter
-      if (args.filter !== "all") {
-        filtered = filtered.filter((s: any) => {
-          switch (args.filter) {
-            case "tracked": return s.inDashboard;
-            case "active": return s.state !== "completed" && s.state !== "failed";
-            case "discovered": return !s.acknowledged;
-            case "archived": return s.acknowledged && !s.inDashboard && (s.state === "completed" || s.state === "failed");
-            default: return true;
-          }
+      // 1. Apply Time Filter (since)
+      const sinceHours = resolveSinceHours(args.since);
+      if (sinceHours !== null) {
+        const cutoff = Date.now() - sinceHours * 60 * 60 * 1000;
+        filtered = filtered.filter((s: SessionInfo) => {
+          const created = s.createTimeMs || (s.lastActivity ? new Date(s.lastActivity).getTime() : 0);
+          return created >= cutoff;
         });
       }
 
-      // 2. Apply Fuzzy Topic Search
+      // 2. Apply State Filter
+      if (args.state !== "all") {
+        filtered = filtered.filter((s: SessionInfo) => filterByState(s, args.state));
+      }
+
+      // 3. Apply Fuzzy Topic Search
       if (args.topic) {
         const term = args.topic.toLowerCase();
-        filtered = filtered.filter((s: any) => {
+        filtered = filtered.filter((s: SessionInfo) => {
           const titleMatch = (s.title || "").toLowerCase().includes(term);
           const shortNameMatch = (s.shortName || "").toLowerCase().includes(term);
           const repoMatch = (s.repo || "").toLowerCase().includes(term);
@@ -210,11 +251,11 @@ export async function spawnSessionManagerAgent(
 
       if (filtered.length === 0) return "No sessions found matching your criteria.";
 
-      const table = filtered.map((s: any) => {
+      const table = filtered.map((s: SessionInfo) => {
         return `| ${s.julesSessionId} | ${s.title || s.shortName || 'untitled'} | ${s.repo || 'none'} | ${s.state || 'unknown'} |`;
       }).join("\n");
 
-      return `### Session List (${args.filter}${args.topic ? ': ' + args.topic : ''})\n| ID | Title | Repo | State |\n|---|---|---|---|\n${table}\n\nTip: Use 'inspect_session(id)' to see full activity logs for a specific session.`;
+      return `### Session List (${args.since}, state=${args.state}${args.topic ? ', topic: ' + args.topic : ''})\nFound ${filtered.length} session(s)\n| ID | Title | Repo | State |\n|---|---|---|---|\n${table}\n\nTip: Use 'inspect_session(id)' to see full activity logs for a specific session.`;
     },
   });
 
@@ -222,9 +263,12 @@ export async function spawnSessionManagerAgent(
     description: inspect_session.description,
     inputSchema: inspect_session.inputSchema,
     execute: async (subCtx, args) => {
+      const matchingSession = sessions.find(s => s.julesSessionId === args.julesSessionId);
+      const sessionsArg = matchingSession ? [matchingSession] : sessions;
+
       const result = await subCtx.runAction(
         internal.sessions.sessionManager.getSessionDetails,
-        { sessionIds: [args.julesSessionId], threadId: originalThreadId },
+        { sessionIds: [args.julesSessionId], threadId: originalThreadId, sessions: sessionsArg },
       ) as any;
 
       if (!result.success) {

@@ -72,9 +72,9 @@ Browse, search, inspect, and manage the user's Jules sessions. Spawns a session 
 - prompt: Optional — what to find or manage (e.g. "find auth sessions", "register all completed")
 
 **manage_sessions**
-Bulk manage sessions: REGISTER (acknowledge discovered), TRACK (add to dashboard), ARCHIVE (remove from dashboard), or CONFIGURE (bulk update preferences).
+Bulk manage sessions: REGISTER (acknowledge unregistered), TRACK (add to dashboard), ARCHIVE (remove tracked sessions from dashboard = untrack), or CONFIGURE (bulk update preferences).
 - action: "REGISTER" | "TRACK" | "ARCHIVE" | "CONFIGURE"
-- selection: { ids: string[], target: "discovered" | "active" | "completed" | "all" }
+- selection: { ids: string[], target: "unregistered" | "tracked" | "active" | "completed" | "all" }
 - prefs: Optional { approval, verbosity } for bulk updates.
 
 **fetch_session_files**
@@ -127,4 +127,15 @@ Send message to user on Telegram.
 - If there are no sessions yet, let the user know you're ready to help them create one when they need.
 
 ## Sessions
-New sessions are discovered automatically by background polling. Use manage_sessions(action: "REGISTER") to acknowledge them. Use query_sessions to find older archived sessions.`;
+Sessions are NOT discovered automatically in the background. When the user asks about sessions, use 'query_sessions' to discover them on-demand from the Jules API. The session manager supports filtering by time (since: "1h"|"6h"|"24h"|"7d"|"30d"|"all") and state (state: "active"|"completed"|"failed"|"awaiting_feedback"|"running"|"all").
+
+If the user has zero tracked sessions, suggest query_sessions to check for existing Jules sessions on first run.
+
+When presenting unregistered sessions to the user, keep it concise — mention the count and key details. Offer to register, track, or archive them. Example flow:
+1. User asks "any new sessions?" → call query_sessions with a prompt like "show active sessions from today"
+2. Session manager returns results → tell the user what was found
+3. User says "track them" or "archive the failed ones" → call manage_sessions with appropriate action and filters
+
+Use manage_sessions(action: "REGISTER") to acknowledge unregistered sessions. Use manage_sessions(action: "TRACK") to add sessions to the user's dashboard for active monitoring. Use manage_sessions(action: "ARCHIVE", selection: { target: "tracked" }) to untrack sessions from the dashboard. ARCHIVE only works on tracked sessions.
+
+If a tool returns an error, inform the user what went wrong and suggest alternatives.`;

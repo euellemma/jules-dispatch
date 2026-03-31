@@ -10,11 +10,41 @@ import type { GenericActionCtx } from "convex/server";
 type ActionCtx = GenericActionCtx<any>;
 
 interface WakerEvent {
-  type: "discovered" | "resumed" | "state_change" | "message";
+  type: "resumed" | "state_change" | "message";
   sessionId: string;
   shortName: string;
   threadId: string;
   details: string;
+}
+
+interface JulesApiSession {
+  id: string;
+  title?: string;
+  state?: string;
+  outputs?: Array<{
+    type?: string;
+    changeSet?: {
+      source?: string;
+      gitPatch?: {
+        unidiffPatch: string;
+        baseCommitId?: string;
+      };
+    };
+    pullRequest?: {
+      url: string;
+      title: string;
+      description?: string;
+      baseRef?: string;
+      headRef?: string;
+    };
+  }>;
+  source?: {
+    githubRepo?: {
+      owner: string;
+      repo: string;
+    };
+  };
+  createTime?: string;
 }
 
 export const pollJulesActivities = internalAction({
@@ -23,25 +53,62 @@ export const pollJulesActivities = internalAction({
     const cronStartMs = Date.now();
     const wakerEvents: WakerEvent[] = [];
     
-    // 1. Discover new sessions from Jules SDK
-    await discoverNewSessions(ctx, wakerEvents);
-    
-    // 2. Poll existing tracked sessions for updates
     const sessions = await ctx.runQuery(internal.sessions.db.getDashboardSessions, {});
+    if (sessions.length === 0) return;
+
+    let sessionMap: Map<string, JulesApiSession>;
+    let jules: any;
+    try {
+      jules = await getJulesClient(ctx, sessions[0]!.threadId);
+      const allSessions = await jules.sessions({}).all();
+      sessionMap = new Map(allSessions.map((s: JulesApiSession) => [s.id, s]));
+    } catch (error) {
+      console.error(`[pollJulesActivities] sessions().all() failed — skipping this poll cycle:`, error);
+      return;
+    }
+
+    const threadIds = [...new Set(sessions.map(s => s.threadId))];
+    const modelCache = new Map<string, any>();
+    for (const tid of threadIds) {
+      try {
+        modelCache.set(tid, await resolveLanguageModel(ctx, tid));
+      } catch (error) {
+        console.error(`[pollJulesActivities] Model resolution failed for thread ${tid} — will skip agent wake for this thread:`, error);
+      }
+    }
 
     for (const sessionDoc of sessions) {
       try {
-        const jules = await getJulesClient(ctx, sessionDoc.threadId);
-        const session = await jules.session(sessionDoc.julesSessionId);
-        
-        const info = await session.info();
-        const currentState = info.state;
+        const julesSession = sessionMap.get(sessionDoc.julesSessionId);
+        if (!julesSession) {
+          console.warn(`[pollJulesActivities] Tracked session ${sessionDoc.julesSessionId} not found on Jules side — marking inactive`);
+          await ctx.runMutation(internal.sessions.db.updateSessionState, {
+            sessionId: sessionDoc._id,
+            lastKnownState: sessionDoc.lastKnownState || "unknown",
+            isActive: false,
+            lastProcessedActivityTime: sessionDoc.lastProcessedActivityTime || Date.now(),
+          });
+          continue;
+        }
+
+        const currentState = julesSession.state || "unknown";
+        const outputs = julesSession.outputs || [];
         const lastKnownState = sessionDoc.lastKnownState;
 
-        const { activities: activitiesResult } = await session.activities.list({});
+        let activitiesResult: Array<any> = [];
+        try {
+          const session = await jules.session(sessionDoc.julesSessionId);
+          const cutoffTime = new Date(sessionDoc.lastProcessedActivityTime || 0).toISOString();
+          const { activities } = await session.activities.list({
+            filter: `create_time>"${cutoffTime}"`,
+          });
+          activitiesResult = activities;
+        } catch (error) {
+          console.error(`[pollJulesActivities] Activity fetch failed for ${sessionDoc.julesSessionId} — proceeding without new activities:`, error);
+        }
         
         let maxTime = sessionDoc.lastProcessedActivityTime || 0;
-        const newActivities = activitiesResult.filter((act) => {
+        const newActivities = activitiesResult.filter((act: any) => {
           const actTime = new Date(act.createTime).getTime();
           return actTime > (sessionDoc.lastProcessedActivityTime || 0) && act.originator !== 'user';
         });
@@ -75,6 +142,7 @@ export const pollJulesActivities = internalAction({
               });
            }
 
+           // Step 12: Combined state update (single mutation)
            await ctx.runMutation(internal.sessions.db.updateSessionState, {
               sessionId: sessionDoc._id,
               lastKnownState: currentState,
@@ -152,12 +220,18 @@ export const pollJulesActivities = internalAction({
             message: { role: "user", content: updatesText }
           });
 
-          const model = await resolveLanguageModel(ctx, sessionDoc.threadId);
-          await julesAgent.generateText(ctx, { threadId: sessionDoc.threadId }, {
-            model,
-            promptMessageId: messageId,
-          });
+          // Step 12: Use cached model
+          const model = modelCache.get(sessionDoc.threadId);
+          if (!model) {
+            console.error(`[pollJulesActivities] No cached model for thread ${sessionDoc.threadId} — skipping agent wake`);
+          } else {
+            await julesAgent.generateText(ctx, { threadId: sessionDoc.threadId }, {
+              model,
+              promptMessageId: messageId,
+            });
+          }
 
+          // Step 12: Combined state update (single mutation with all fields)
           await ctx.runMutation(internal.sessions.db.updateSessionState, {
             sessionId: sessionDoc._id,
             lastKnownState: currentState,
@@ -166,7 +240,7 @@ export const pollJulesActivities = internalAction({
           });
 
           if (currentState === 'completed') {
-            const processed = await processOutputs(ctx, sessionDoc.julesSessionId, info.outputs, false);
+            const processed = await processOutputs(ctx, sessionDoc.julesSessionId, outputs, false);
             
             if (processed && processed.length > 0) {
               let jitMessage = `[SYSTEM: Session ${sessionDoc.shortName} Completed]\nFinal results:\n`;
@@ -184,11 +258,15 @@ export const pollJulesActivities = internalAction({
                 message: { role: "user", content: jitMessage }
               });
 
-              const model = await resolveLanguageModel(ctx, sessionDoc.threadId);
-              await julesAgent.generateText(ctx, { threadId: sessionDoc.threadId }, {
-                model,
-                promptMessageId: messageId,
-              });
+              const model2 = modelCache.get(sessionDoc.threadId);
+              if (!model2) {
+                console.error(`[pollJulesActivities] No cached model for thread ${sessionDoc.threadId} — skipping completion notification`);
+              } else {
+                await julesAgent.generateText(ctx, { threadId: sessionDoc.threadId }, {
+                  model: model2,
+                  promptMessageId: messageId,
+                });
+              }
             }
           }
         }
@@ -205,77 +283,13 @@ export const pollJulesActivities = internalAction({
   }
 });
 
-async function discoverNewSessions(ctx: ActionCtx, wakerEvents: WakerEvent[]) {
-  try {
-    const jules = await getJulesClient(ctx);
-    const sessionsList = await jules.sessions({}).all();
-    
-    if (sessionsList.length === 0) return; // Nothing to discover
-    
-    const allDbSessions = await ctx.runQuery(internal.sessions.db.getAllSessions, {});
-    const dbSessionMap = new Map(allDbSessions.map((s: { julesSessionId: string }) => [s.julesSessionId, s]));
-    
-    const discovered: Array<{ id: string; info: { title?: string; state?: string } }> = [];
-    
-    for (const js of sessionsList) {
-      if (!dbSessionMap.has(js.id)) {
-        try {
-          // New session discovered!
-          const session = await jules.session(js.id);
-          const info = await session.info();
-          
-          await ctx.runMutation(internal.sessions.db.upsertDiscoveredSession, {
-            julesSessionId: js.id,
-            lastKnownState: info.state,
-          });
-          
-          discovered.push({ id: js.id, info });
-          
-          console.log(`[discoverNewSessions] Discovered new session: ${js.id} (${info.state})`);
-        } catch (err) {
-          console.error(`[discoverNewSessions] Failed to discover session ${js.id}:`, err);
-          // Fallback: upsert with state from list if possible, or skip
-          await ctx.runMutation(internal.sessions.db.upsertDiscoveredSession, {
-            julesSessionId: js.id,
-            lastKnownState: js.state || "unknown",
-          });
-        }
-      }
-    }
-    
-    // Add discovered events to waker
-    for (const d of discovered) {
-      const shortName = (d.info.title || d.id.slice(0, 8))
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, '')
-        .split(/\s+/)
-        .slice(0, 5)
-        .join('-');
-        
-      wakerEvents.push({
-        type: "discovered",
-        sessionId: d.id,
-        shortName: shortName,
-        threadId: "", // Will be filled when user acknowledges
-        details: `New session discovered: ${d.info.title || 'Untitled'} - State: ${d.info.state}`,
-      });
-    }
-    
-    if ( discovered.length > 0) {
-      console.log(`[discoverNewSessions] Added ${discovered.length} discovered sessions to waker`);
-    }
-  } catch (error) {
-    console.error(`[discoverNewSessions] Error discovering sessions:`, error);
-  }
-}
-
 async function sendWakerEvents(ctx: ActionCtx, events: WakerEvent[]) {
   console.log(`[sendWakerEvents] Sending ${events.length} aggregated events`);
   
   // Group events by threadId
   const byThread = new Map<string, WakerEvent[]>();
   for (const event of events) {
-    if (!event.threadId) continue; // Skip events without threadId
+    if (!event.threadId) continue;
     const existing = byThread.get(event.threadId) || [];
     existing.push(event);
     byThread.set(event.threadId, existing);
@@ -286,9 +300,6 @@ async function sendWakerEvents(ctx: ActionCtx, events: WakerEvent[]) {
     
     for (const event of threadEvents) {
       switch (event.type) {
-        case "discovered":
-          message += `[DISCOVERED] ${event.shortName}\n   ${event.details}\n   Session ID: ${event.sessionId}\n\n`;
-          break;
         case "resumed":
           message += `[RESUMED] ${event.shortName}\n   ${event.details}\n\n`;
           break;
@@ -319,13 +330,6 @@ async function sendWakerEvents(ctx: ActionCtx, events: WakerEvent[]) {
     } catch (error) {
       console.error(`[sendWakerEvents] Error sending events to thread ${threadId}:`, error);
     }
-  }
-  
-  // Handle discovered sessions without threadId (new sessions)
-  const unthreaded = events.filter(e => e.type === "discovered" && !e.threadId);
-  if (unthreaded.length > 0) {
-    console.log(`[sendWakerEvents] ${unthreaded.length} discovered sessions need user acknowledgement`);
-    // These will be picked up when user interacts - the session manager will see them
   }
 }
 

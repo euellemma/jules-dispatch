@@ -16,6 +16,7 @@ export default defineSchema({
       approval: v.union(v.literal("auto"), v.literal("confirm"), v.literal("strict")),
       verbosity: v.union(v.literal("silent"), v.literal("milestones"), v.literal("full")),
     })), // Session interaction preferences toward the user
+    repo: v.optional(v.string()), // "owner/repo" extracted from github source
   })
     .index("by_julesSessionId", ["julesSessionId"])
     .index("by_threadId", ["threadId"])

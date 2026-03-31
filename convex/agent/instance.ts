@@ -94,34 +94,30 @@ interface JulesSession {
   shortName?: string;
   lastKnownState?: string;
   inDashboard: boolean;
+  acknowledged: boolean;
 }
 
 const sessionContextHandler: ContextHandler = async (ctx, args) => {
   const { threadId, allMessages } = args;
   if (!threadId) return allMessages;
 
-  const dashboardSessions = (await ctx.runQuery(
-    internal.sessions.db.getDashboardSessions,
-    {},
-  )) as JulesSession[];
-
-  const activeUntracked = (
-    (await ctx.runQuery(
-      internal.sessions.db.getActiveSessions,
+  let allSessions: JulesSession[];
+  try {
+    allSessions = (await ctx.runQuery(
+      internal.sessions.db.getAllSessions,
       {},
-    )) as JulesSession[]
-  ).filter((s) => !s.inDashboard);
+    )) as JulesSession[];
+  } catch (error) {
+    console.error("[sessionContextHandler] Failed to fetch sessions:", error);
+    return allMessages;
+  }
 
-  const discoveredSessions = (await ctx.runQuery(
-    internal.sessions.db.getUnacknowledgedSessions,
-    {},
-  )) as JulesSession[];
+  const dashboardSessions = allSessions.filter(s => s.inDashboard);
+  const activeUntracked = allSessions.filter(s =>
+    !s.inDashboard && s.acknowledged && s.lastKnownState !== "completed" && s.lastKnownState !== "failed"
+  );
 
-  if (
-    dashboardSessions.length === 0 &&
-    activeUntracked.length === 0 &&
-    discoveredSessions.length === 0
-  ) {
+  if (dashboardSessions.length === 0 && activeUntracked.length === 0) {
     return allMessages;
   }
 
@@ -144,19 +140,6 @@ const sessionContextHandler: ContextHandler = async (ctx, args) => {
       context += `- ${s.julesSessionId} | ${s.shortName || "untitled"} | ${
         s.lastKnownState || "unknown"
       }\n`;
-    }
-  }
-
-  // 3. Summary of Discovered (Cold)
-  if (discoveredSessions.length > 0) {
-    context += `\n**Discovered Sessions:** ${discoveredSessions.length}\n`;
-    if (discoveredSessions.length <= 10) {
-      context += `IDs: ${discoveredSessions
-        .map((s) => s.julesSessionId)
-        .join(", ")}\n`;
-      context += `Use 'manage_sessions(action: "REGISTER", selection: { target: "discovered" })' to acknowledge all.\n`;
-    } else {
-      context += `(More than 10 sessions discovered. Use 'query_sessions' to inspect or 'manage_sessions' to register all.)\n`;
     }
   }
 

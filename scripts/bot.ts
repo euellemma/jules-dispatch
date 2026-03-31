@@ -220,6 +220,12 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[bot] Fatal error:", err);
+  if (err?.error_code === 401 || err?.description?.includes("Unauthorized")) {
+    console.error("[bot] Telegram bot token is invalid or revoked");
+    console.error("[bot] Please update TELEGRAM_BOT_TOKEN in .env.local");
+    console.error("[bot] Get a new token from @BotFather on Telegram");
+  } else {
+    console.error("[bot] Fatal error:", err);
+  }
   process.exit(1);
 });

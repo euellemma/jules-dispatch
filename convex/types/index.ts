@@ -38,6 +38,7 @@ export interface JulesSessionDoc {
   acknowledged: boolean;
   inDashboard: boolean;
   prefs?: SessionPrefs;
+  repo?: string;
 }
 
 /**
@@ -164,6 +165,10 @@ export interface JulesApiSession {
   state?: "running" | "completed" | "failed" | "pending" | string;
   source?: {
     github?: string;
+    githubRepo?: {
+      owner: string;
+      repo: string;
+    };
     [key: string]: unknown;
   };
   createTime?: string;
@@ -271,6 +276,7 @@ export interface SessionInfo {
   inDashboard: boolean;
   prefs?: SessionPrefs;
   lastActivity?: string;
+  createTimeMs?: number;
   prMetadata?: Array<{
     title?: string;
     description?: string;
