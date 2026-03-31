@@ -8,10 +8,6 @@ import { withRetry } from "../utils/retry";
 import { captureException } from "../sentry";
 import { INITIAL_CONFIG, isConfigured } from "../config/initial";
 
-function isTestingMode(): boolean {
-  return !process.env.CONVEX_DEPLOY_KEY;
-}
-
 async function telegramApiCall(endpoint: string, body: object): Promise<any> {
   const botToken = INITIAL_CONFIG.telegramBotToken;
   if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN not set in initial.ts");
@@ -161,13 +157,6 @@ export async function processTelegramUpdate(
           });
 
           justSeeded = true;
-
-          if (isTestingMode()) {
-            await sendTelegramMessage(
-              chatId,
-              "Welcome! Testing mode — the bot only runs while your PC is online. Run <code>npx jules-dispatch deploy</code> to host it on Convex."
-            );
-          }
         } else if (!isConnectCommand) {
           await sendTelegramMessage(
             chatId,

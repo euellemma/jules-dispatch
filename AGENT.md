@@ -75,8 +75,7 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
   - `/settings/api/save-jules` — POST save Jules API key
   - `/settings/api/save-exa` — POST save Exa API key
   - `/settings/api/test` — POST test provider connection
-  - `/telegram` — Telegram webhook (production)
-  - `/bot/message` — Internal API for local polling bot (dev). Accepts structured payload.
+  - `/telegram` — Telegram webhook
   - `/api/health` — Health check endpoint
   - `/settings/*` — Static file serving via @convex-dev/static-hosting (SPA fallback)
 
@@ -100,9 +99,6 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
   - `findJulesDispatchProject` — Auto-detect existing installation
   - `createDefaultConfig` / `updateConfig`
 - **`tsconfig.cli.json`**: TypeScript config for CLI compilation. Outputs ESM JS to `dist/`. Uses `module: "NodeNext"` and `moduleResolution: "NodeNext"` for proper `.js` extensions.
-
-### 🤖 Local Bot
-- **`scripts/bot.ts`**: Standalone Grammy bot for local development. Polls Telegram, forwards updates to Convex via `/bot/message` internal route. Handles text, documents, and callback queries. Rejects unsupported media (photos, video, audio, etc.) with a user-facing error message. Graceful shutdown on SIGINT/SIGTERM.
 
 ### ⏰ Cron Jobs
 - **`convex/crons.ts`**: 
@@ -257,11 +253,10 @@ The CLI (`npx jules-dispatch`) sets up a new Jules Dispatch instance from a fres
 
 ### Config Storage
 - **`~/.jules-dispatch.json`** — User-level config: install path, deploy key, telegram token, Jules API key, Exa API key, AI provider config
-- **`<installPath>/.env.local`** — Project-level env vars: `TELEGRAM_BOT_TOKEN`, `JULES_API_KEY`, `EXA_API_KEY`, `CONVEX_AGENT_MODE`
+- **`<installPath>/.env.local`** — Project-level env vars: `TELEGRAM_BOT_TOKEN`, `JULES_API_KEY`, `EXA_API_KEY`
 
 ### Convex Setup (Wizard Step 6)
-- **Option 1: Test Locally** — Sets `CONVEX_AGENT_MODE=anonymous` in `.env.local`. No Convex account needed. `npx convex dev` creates a local anonymous deployment.
-- **Option 2: Deploy** — Prompts for a Convex deploy key (format: `team:project|token`). Saves to `~/.jules-dispatch.json`. Deploy key is only used by deploy/update commands, NOT by `npm run dev`. Dev workflow always uses anonymous mode.
+- Prompts for a Convex deploy key (format: `team:project|token`). Saves to `~/.jules-dispatch.json`. Deploy key is only used by deploy/update commands.
 
 ### Deploy Key Parsing
 `parseDeployKey()` extracts:
@@ -274,39 +269,6 @@ The CLI (`npx jules-dispatch`) sets up a new Jules Dispatch instance from a fres
 If `git` is not available, the CLI downloads the GitHub archive (`main.tar.gz`) and extracts it using pure Node.js (`zlib.createGunzip()` + manual tar parser). Works on Windows, macOS, and Linux without external tools.
 
 ---
-
-## 🤖 Local Bot Setup
-
-`scripts/bot.ts` is a standalone Grammy bot for local development. It polls Telegram and forwards messages to Convex.
-
-### Flow
-```
-npm run dev
-  → npx convex dev (starts Convex dev server with anonymous deployment)
-  → npx tsx scripts/bot.ts (starts Grammy polling bot)
-    → bot waits for Convex /api/health
-    → bot polls Telegram
-    → bot sends structured payload to CONVEX_URL/bot/message
-    → Convex processes via processTelegramUpdate
-```
-
-### Internal Bot API (`/bot/message`)
-The bot sends a structured payload (NOT raw Telegram update JSON) to a dedicated Convex route:
-```json
-{
-  "chatId": "123456",
-  "text": "hello",
-  "document": { "fileId": "...", "fileName": "file.txt", "fileSize": 1024, "caption": "..." },
-  "callbackQuery": { "queryId": "...", "data": "confirm", "chatId": "123456", "messageId": 42 }
-}
-```
-The route builds a Telegram-compatible update internally and calls `processTelegramUpdate`.
-
-### Unsupported Media
-Photos, video, audio, voice, stickers, animations, locations, and contacts are **not supported in v1**. The bot replies with a user-facing error message when these are received.
-
-### Graceful Shutdown
-The bot handles SIGINT and SIGTERM signals to cleanly stop polling.
 
 ---
 
@@ -334,11 +296,8 @@ npx @convex-dev/static-hosting upload --build --prod
   - `deploy-prod.yml` — Deploy to production Convex deployment
 
 ### Scripts (`package.json`)
-- `npm run dev` — `npx convex dev & npx tsx scripts/bot.ts`
-- `npm run dev:convex` — Convex dev server only
-- `npm run dev:bot` — Grammy bot only
+- `npm run dev` — `npx convex dev`
 - `npm run dev:web` — Vite dev server for React app
-- `npm run dev:all` — Convex + bot + web
 - `npm run build:cli` — Compile CLI TypeScript to `dist/cli/` (ESM JS)
 - `npm run build:web` — Build React app
 - `npm run build` — Build CLI + web
@@ -366,27 +325,21 @@ npx @convex-dev/static-hosting upload --build --prod
 - **Practice:** The webhook immediately returns 200 OK and schedules a background action to handle the file download.
 
 ### 4. The `.env.local` Lifecycle
-- `npx convex dev` (anonymous mode) writes `CONVEX_DEPLOYMENT`, `CONVEX_URL`, `CONVEX_SITE_URL` to `.env.local`.
 - `writeEnvLocal()` in `cli/config.ts` **merges** with existing vars — it does NOT overwrite.
 - Deploy key is NOT written to `.env.local` during wizard setup. It is saved to `~/.jules-dispatch.json` and set as `process.env.CONVEX_DEPLOY_KEY` at deploy time only.
 
-### 5. Two Telegram Entry Points
-- **Webhook** (`/telegram`): Used in production. Telegram sends updates directly to Convex.
-- **Internal Bot API** (`/bot/message`): Used by the local Grammy polling bot in dev. Accepts a structured payload, not raw Telegram JSON.
-- Both call the same `processTelegramUpdate()` function.
-
-### 6. No Fallback Hell Policy
+### 5. No Fallback Hell Policy
 - **Rule:** Never add a fallback that multiplies API calls. If a batch operation fails, skip the cycle and log it.
 - **Example removed:** The polling fallback that did per-session `session.info()` when `sessions().all()` failed was eliminated. This was the original source of N+1 API explosion.
 - **Allowed:** Graceful degradation that returns less data (e.g., DB-only sessions when Jules API is down). Not allowed: fallbacks that re-fetch the same data through a slower path.
 
-### 7. Jules SDK `source` Structure
+### 6. Jules SDK `source` Structure
 - `source` is NOT a string. There is no `source.github` property.
 - Correct path: `source?.githubRepo?.owner + "/" + source?.githubRepo?.repo`.
 - If `source` is undefined or `githubRepo` is missing, the session is **repoless** — use `"repoless"` as the default.
 - The `julesSessions` table has a `repo` field to store this extracted value.
 
-### 8. `sessions().all()` vs `session.info()`
+### 7. `sessions().all()` vs `session.info()`
 - Both return the same `SessionResource` fields: `id`, `title`, `state`, `source`, `createTime`, `outputs`.
 - **Never call `session.info()` if you already have the session from `sessions().all()`.**
 - In Convex stateless actions, the SDK's in-memory cache is always empty — every call hits the network.
@@ -439,14 +392,13 @@ Manually triggers context compaction.
 Deletes all user data except provider settings.
 - **Action**: Wipes all memory, history, and files.
 - **Security**: Requires a "Yes, I am sure" confirmation via inline buttons.
-- **Note**: Callback queries must be handled for the confirmation to work. In local polling mode, the bot script handles this via the `/bot/message` route with `callbackQuery` field.
 
 ---
 
 ## 📋 Scope Notes
 
 ### Out of Scope for v1
-- **Photo/media handling**: Photos, video, audio, voice messages, stickers, and animations are not supported. The local bot rejects them with a user-facing error. The Convex webhook silently ignores them. Only **text messages** and **document files** are supported.
+- **Photo/media handling**: Photos, video, audio, voice messages, stickers, and animations are not supported. The Telegram webhook silently ignores them. Only **text messages** and **document files** are supported.
 - **Edited message handling**: Edited messages are logged but not processed.
 
 # Creator of the project preference for coding agents

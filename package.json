@@ -15,11 +15,9 @@
     "LICENSE"
   ],
   "scripts": {
-		"dev": "npm run dev:convex > convex.log 2>&1 & npm run dev:bot > bot.log 2>&1 & tmux new-session 'tail -f convex.log' ';' split-window -h 'tail -f bot.log'",
-    "dev:convex": "CONVEX_AGENT_MODE=anonymous npx convex dev",
-    "dev:bot": "node --env-file=.env.local --import=tsx scripts/bot.ts",
+    "dev": "npm run dev:convex",
+    "dev:convex": "npx convex dev",
     "dev:web": "cd web && npm run dev",
-    "dev:all": "npm run dev:convex & npm run dev:bot & npm run dev:web",
     "build:cli": "tsc --project tsconfig.cli.json",
     "build:web": "cd web && npm run build",
     "build": "npm run build:cli && npm run build:web",

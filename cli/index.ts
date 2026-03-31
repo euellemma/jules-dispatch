@@ -422,7 +422,6 @@ interface StepContext {
   exaApiKey?: string;
   useExa: boolean;
   deployKey?: string;
-  convexMode: "local" | "deploy";
 }
 
 async function promptForDeployKey(): Promise<string | null> {
@@ -687,43 +686,6 @@ async function runStepExa(): Promise<{ useExa: boolean; apiKey?: string }> {
   return { useExa: true, apiKey: (apiKey as string).trim() };
 }
 
-async function runStepConvex(): Promise<{
-  mode: "local" | "deploy";
-  deployKey?: string;
-}> {
-  const mode = await p.select({
-    message: "How do you want to run Convex?",
-    options: [
-      {
-        value: "local",
-        label: "Test locally first",
-        hint: "No account needed, runs on your machine",
-      },
-      {
-        value: "deploy",
-        label: "Deploy to Convex",
-        hint: "Requires deploy key from dashboard.convex.dev (gets one free)",
-      },
-    ],
-  });
-
-  if (p.isCancel(mode)) {
-    process.exit(0);
-  }
-
-  if (mode === "local") {
-    return { mode: "local" };
-  }
-
-  const deployKey = await promptForDeployKey();
-  if (!deployKey) {
-    p.log.warn(c.yellow("No deploy key provided. Falling back to local mode."));
-    return { mode: "local" };
-  }
-
-  return { mode: "deploy", deployKey };
-}
-
 // ─── Main Wizard ────────────────────────────────────────────────────────────
 
 async function runFreshWizard(): Promise<void> {
@@ -782,9 +744,7 @@ async function runFreshWizard(): Promise<void> {
       id: "convex",
       label: "Convex Setup",
       run: async () => {
-        const result = await runStepConvex();
-        context.convexMode = result.mode;
-        context.deployKey = result.deployKey;
+        context.deployKey = (await promptForDeployKey()) ?? undefined;
       },
     },
   ];
@@ -807,7 +767,6 @@ async function runFreshWizard(): Promise<void> {
         exaApiKey: context.exaApiKey,
         useExa: context.useExa,
         deployKey: context.deployKey,
-        convexMode: context.convexMode,
       });
     } catch (error) {
       handleError(error, step.id);
@@ -902,11 +861,10 @@ async function runFreshWizard(): Promise<void> {
   try {
     writeHomeConfig(config);
 
-    // Write .env.local with Telegram bot token and anonymous mode
+    // Write .env.local with Telegram bot token
     // LLM and Jules config is written to convex/config/initial.ts for user seeding
     writeEnvLocal(context.installPath!, {
       TELEGRAM_BOT_TOKEN: context.telegramToken!,
-      CONVEX_AGENT_MODE: "anonymous",
     });
 
     // Clear state on success - only after all writes completed
@@ -971,11 +929,9 @@ async function runFreshWizard(): Promise<void> {
         console.log();
         p.log.success(`Connected to: ${c.cyan(info.convexUrl)}`);
         console.log();
-        p.log.success(`${c.bold("Your bot is live! 🚀")}`);
+        p.log.success(`${c.bold("Your bot is live!")}`);
         console.log();
-        p.log.info(c.dim("To start the bot locally (pointing at production):"));
-        p.log.info(c.dim(`  cd ${context.installPath}`));
-        p.log.info(c.dim("  npm run dev:bot"));
+        p.log.info(c.dim("Message the bot on Telegram to claim ownership."));
       }
     } else {
       s.stop(c.red("Deployment failed"));

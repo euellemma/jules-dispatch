@@ -23,7 +23,6 @@ export interface WizardState {
   exaApiKey?: string;
   useExa?: boolean;
   deployKey?: string;
-  convexMode?: "local" | "deploy";
   lastUpdated: string;
 }
 
