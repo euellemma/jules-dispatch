@@ -559,7 +559,7 @@ async function runStepLocation(): Promise<string> {
 async function runStepTelegram(): Promise<string> {
   const token = await p.password({
     message:
-      "Enter your Telegram bot token (use the mini-app and click 'Open')",
+      `Enter your Telegram bot token ${link("https://t.me/BotFather", "(create via Bot Father ↗)")}`,
     mask: "•",
     validate: (value) => {
       if (!value) return "Telegram bot token is required";
@@ -673,7 +673,7 @@ async function runStepExa(): Promise<{ useExa: boolean; apiKey?: string }> {
   }
 
   const apiKey = await p.text({
-    message: `Enter Exa API key ${link("https://dashboard.exa.ai", "(get free key ↗)")}`,
+    message: `Enter Exa API key ${link("https://dashboard.exa.ai", "↗")}`,
     validate: (v) => {
       if (!v || v.trim().length < 10) return "Please enter a valid API key";
     },
@@ -867,6 +867,19 @@ async function runFreshWizard(): Promise<void> {
       TELEGRAM_BOT_TOKEN: context.telegramToken!,
     });
 
+    // Write initial config to convex/config/initial.ts for user seeding
+    if (context.aiProvider && context.customApiKey) {
+      writeInitialConfig(context.installPath!, {
+        telegramBotToken: context.telegramToken!,
+        julesApiKey: context.julesApiKey!,
+        exaApiKey: context.exaApiKey,
+        llmEndpoint: context.aiProvider.endpoint,
+        llmModel: context.aiProvider.model,
+        llmApiKey: context.customApiKey,
+        llmSdkType: context.aiProvider.sdkType,
+      });
+    }
+
     // Clear state on success - only after all writes completed
     clearWizardState();
   } catch (error) {
@@ -956,19 +969,6 @@ async function runFreshWizard(): Promise<void> {
       `${c.bold("Jules Dispatch")} is installed at: ${c.cyan(context.installPath!)}`,
     );
 
-    // Write initial config to convex/config/initial.ts for seeding new users
-    if (context.aiProvider && context.customApiKey) {
-      writeInitialConfig(context.installPath!, {
-        telegramBotToken: context.telegramToken!,
-        julesApiKey: context.julesApiKey!,
-        exaApiKey: context.exaApiKey,
-        llmEndpoint: context.aiProvider.endpoint,
-        llmModel: context.aiProvider.model,
-        llmApiKey: context.customApiKey,
-        llmSdkType: context.aiProvider.sdkType,
-      });
-    }
-
     // Auto-start dev mode for local development
     console.log();
     try {
@@ -1053,7 +1053,7 @@ async function runUpdateCommand(): Promise<void> {
             );
           }
 
-          p.log.success(`Dashboard: ${c.cyan(keyInfo.convexSiteUrl)}/settings`);
+          p.log.success(`Dashboard: ${link(keyInfo.convexSiteUrl + "/settings", "↗")}`);
         }
       } else {
         s.stop(c.red("Deployment failed"));
@@ -1153,7 +1153,7 @@ async function runDeployCommand(): Promise<void> {
 
       console.log();
       p.log.success(`${c.bold("Your bot is live!")}`);
-      p.log.info(`Dashboard: ${c.cyan(keyInfo.convexSiteUrl)}/settings`);
+      p.log.info(`Dashboard: ${link(keyInfo.convexSiteUrl + "/settings", "↗")}`);
       console.log();
       p.log.message(c.bold("Next:"));
       p.log.info(`${c.dim("1.")} cd ${installPath} && npm run dev`);
