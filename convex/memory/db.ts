@@ -5,7 +5,7 @@ export const getMemory = internalQuery({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {
     const memory = await ctx.db
-      .query("observational_memory")
+      .query("observationalMemory")
       .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
       .unique();
     return memory;
@@ -21,7 +21,7 @@ export const upsertMemory = internalMutation({
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
-      .query("observational_memory")
+      .query("observationalMemory")
       .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
       .unique();
 
@@ -32,7 +32,7 @@ export const upsertMemory = internalMutation({
         observationTokenCount: args.observationTokenCount,
       });
     } else {
-      await ctx.db.insert("observational_memory", {
+      await ctx.db.insert("observationalMemory", {
         threadId: args.threadId,
         activeObservations: args.activeObservations,
         lastObservedAt: args.lastObservedAt,
@@ -49,7 +49,7 @@ export const updateLastObservedAt = internalMutation({
   },
   handler: async (ctx, args) => {
     const memory = await ctx.db
-      .query("observational_memory")
+      .query("observationalMemory")
       .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
       .unique();
     if (memory) {
@@ -62,13 +62,13 @@ export const initializeMemory = internalMutation({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {
     const existing = await ctx.db
-      .query("observational_memory")
+      .query("observationalMemory")
       .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
       .unique();
     
     if (existing) return;
     
-    await ctx.db.insert("observational_memory", {
+    await ctx.db.insert("observationalMemory", {
       threadId: args.threadId,
       activeObservations: "",
       lastObservedAt: 0,
@@ -81,7 +81,7 @@ export const clearMemory = internalMutation({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {
     const memory = await ctx.db
-      .query("observational_memory")
+      .query("observationalMemory")
       .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
       .unique();
     if (memory) {

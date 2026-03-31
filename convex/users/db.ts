@@ -248,7 +248,7 @@ export const cycleUserThread = internalMutation({
 
     // 2. Handle Observational Memory
     const memory = await ctx.db
-      .query("observational_memory")
+      .query("observationalMemory")
       .withIndex("by_threadId", (q) => q.eq("threadId", oldThreadId))
       .first();
 
@@ -285,7 +285,7 @@ export const nukeUserData = internalMutation({
     const sessions = await ctx.db.query("julesSessions").withIndex("by_threadId", q => q.eq("threadId", oldThreadId)).collect();
     for (const s of sessions) await ctx.db.delete(s._id);
 
-    const memory = await ctx.db.query("observational_memory").withIndex("by_threadId", q => q.eq("threadId", oldThreadId)).collect();
+    const memory = await ctx.db.query("observationalMemory").withIndex("by_threadId", q => q.eq("threadId", oldThreadId)).collect();
     for (const m of memory) await ctx.db.delete(m._id);
 
     // 2. Cycle thread

@@ -22,7 +22,7 @@ export const upsertTasks = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("tasks")
-      .withIndex("by_thread_and_key", (q) =>
+      .withIndex("byThreadAndKey", (q) =>
         q.eq("threadId", args.threadId).eq("key", args.key)
       )
       .unique();
@@ -47,7 +47,7 @@ export const deleteTasks = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("tasks")
-      .withIndex("by_thread_and_key", (q) =>
+      .withIndex("byThreadAndKey", (q) =>
         q.eq("threadId", args.threadId).eq("key", args.key)
       )
       .unique();

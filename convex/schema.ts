@@ -56,7 +56,7 @@ export default defineSchema({
     key: v.string(),
     content: v.string(),
   })
-    .index("by_thread_and_key", ["threadId", "key"])
+    .index("byThreadAndKey", ["threadId", "key"])
     .index("by_thread", ["threadId"]),
 
   sessionOutputs: defineTable({
@@ -94,7 +94,7 @@ export default defineSchema({
     .index("by_threadId", ["threadId"])
     .index("by_thread_and_status", ["threadId", "status"]),
 
-  observational_memory: defineTable({
+  observationalMemory: defineTable({
     threadId: v.string(),
     activeObservations: v.string(),
     lastObservedAt: v.number(),

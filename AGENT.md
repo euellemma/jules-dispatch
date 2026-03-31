@@ -137,7 +137,7 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 ```
 
 ### 📝 Schema
-- **`convex/schema.ts`**: Convex DB schema. Tables: `users`, `julesSessions`, `tasks`, `observational_memory`, `authSessions`, `uploadedFiles`.
+- **`convex/schema.ts`**: Convex DB schema. Tables: `users`, `julesSessions`, `tasks`, `observationalMemory`, `authSessions`, `uploadedFiles`.
 
 ---
 
