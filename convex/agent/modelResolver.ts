@@ -18,9 +18,9 @@ export async function resolveLanguageModel(ctx: any, threadId: string): Promise<
 
   const user = await ctx.runQuery(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (internal as any).users.db.getProviderConfig,
-    { telegramChatId: threadId }
-  ) as { config: ProviderConfig | null; julesApiKey?: string; exaApiKey?: string } | null;
+    (internal as any).users.db.getProviderConfigByThreadId,
+    { threadId }
+  ) as { providerConfig: ProviderConfig | null; julesApiKey?: string; exaApiKey?: string } | null;
 
   if (!user) {
     throw new Error(
@@ -28,13 +28,13 @@ export async function resolveLanguageModel(ctx: any, threadId: string): Promise<
     );
   }
 
-  if (!user.config) {
+  if (!user.providerConfig) {
     throw new Error(
       "AI provider not configured. Use /connect to set up your API key."
     );
   }
 
-  const { endpoint, model, apiKey, sdkType } = user.config;
+  const { endpoint, model, apiKey, sdkType } = user.providerConfig;
 
   if (sdkType === "anthropic") {
     console.log("[resolveLanguageModel] Instantiating Anthropic SDK");
