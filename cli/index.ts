@@ -342,6 +342,36 @@ async function installDependencies(installPath: string): Promise<void> {
   });
 }
 
+async function installWebDependencies(installPath: string): Promise<void> {
+  const webPath = path.join(installPath, "web");
+  if (!fs.existsSync(path.join(webPath, "package.json"))) {
+    return; // No web directory or package.json
+  }
+
+  return new Promise((resolve, reject) => {
+    const install = spawn("npm", ["install"], {
+      cwd: webPath,
+      stdio: "ignore",
+      shell: true,
+    });
+
+    install.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(
+          new WizardError(
+            `npm install in web/ failed with code ${code}`,
+            "location",
+            true,
+            "Try running 'npm install' manually in the web/ directory",
+          ),
+        );
+      }
+    });
+  });
+}
+
 async function runDevMode(installPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     console.log();
@@ -813,6 +843,11 @@ async function runFreshWizard(): Promise<void> {
   try {
     await installDependencies(context.installPath!);
     s.stop("Dependencies installed!");
+
+    // Install web dependencies separately
+    s.start("Installing web UI dependencies...");
+    await installWebDependencies(context.installPath!);
+    s.stop("Web UI dependencies installed!");
   } catch (error) {
     s.stop("Installation failed");
     handleError(error, "location");
@@ -833,6 +868,7 @@ async function runFreshWizard(): Promise<void> {
         }
 
         await installDependencies(context.installPath!);
+        await installWebDependencies(context.installPath!);
         s.stop("Dependencies installed!");
       } catch (_retryError) {
         s.stop("Installation failed again");
@@ -1054,6 +1090,10 @@ async function runUpdateCommand(): Promise<void> {
   try {
     await installDependencies(installPath);
     s.stop("Dependencies updated!");
+
+    s.start("Installing web UI dependencies...");
+    await installWebDependencies(installPath);
+    s.stop("Web UI dependencies updated!");
   } catch (error) {
     s.stop("Installation failed");
     handleError(error, "location");
