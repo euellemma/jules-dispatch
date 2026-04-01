@@ -373,6 +373,22 @@ Jules Dispatch uses a **Pure BYOK (Bring Your Own Key)** architecture.
 
 ---
 
+## 📬 Message Batching
+
+When the agent is busy (`isAgentRunning: true`), incoming Telegram messages are queued in `pendingMessageText` rather than being processed immediately.
+
+### Batch Processing
+- Messages are collected and joined into a single prompt
+- Format: `Message 1: <text>\nMessage 2: <text>\n...`
+- A single `generateText()` call processes all queued messages
+- On success: all pending messages are cleared
+- On failure: messages stay queued for retry after user corrects the issue
+
+### Why Batch?
+Prevents rapid-fire responses when user sends multiple messages in quick succession (e.g., "hi", "hello", "hey" → single combined response instead of 3 separate replies).
+
+---
+
 ## 🔧 Slash Commands
 
 ### `/start`

@@ -87,6 +87,13 @@ interface JulesSession {
   lastKnownState?: string;
   inDashboard: boolean;
   acknowledged: boolean;
+  repo?: string;
+  origin?: string;
+  prefs?: {
+    approval?: string;
+    verbosity?: string;
+  };
+  lastActivity?: string;
 }
 
 const sessionContextHandler: ContextHandler = async (ctx, args) => {
@@ -105,47 +112,31 @@ const sessionContextHandler: ContextHandler = async (ctx, args) => {
   }
 
   const dashboardSessions = allSessions.filter(s => s.inDashboard);
-  const activeUntracked = allSessions.filter(s =>
-    !s.inDashboard && s.acknowledged && s.lastKnownState !== "completed" && s.lastKnownState !== "failed"
-  );
 
-  if (dashboardSessions.length === 0 && activeUntracked.length === 0) {
+  if (dashboardSessions.length === 0) {
     return allMessages;
   }
 
-  let context = `### JULES SESSION DASHBOARD\n`;
+  const rows = dashboardSessions.map((s) => {
+    const prefs = s.prefs ? `${s.prefs.approval || "confirm"}/${s.prefs.verbosity || "milestones"}` : "confirm/milestones";
+    return `| ${s.julesSessionId} | ${s.shortName || "untitled"} | ${s.lastKnownState || "unknown"} | ${s.repo || "repoless"} | ${prefs} | ${s.origin || "discovered"} |`;
+  }).join("\n");
 
-  // 1. Tracked Sessions (Warm)
-  if (dashboardSessions.length > 0) {
-    context += `**Tracked Sessions (${dashboardSessions.length}):**\n`;
-    for (const s of dashboardSessions) {
-      context += `- ${s.julesSessionId} | ${s.shortName || "untitled"} | ${
-        s.lastKnownState || "unknown"
-      }\n`;
-    }
-  }
+  const context = `### JULES SESSION DASHBOARD
 
-  // 2. Active Untracked (Warm)
-  if (activeUntracked.length > 0) {
-    context += `\n**Active Untracked Sessions (${activeUntracked.length}):**\n`;
-    for (const s of activeUntracked) {
-      context += `- ${s.julesSessionId} | ${s.shortName || "untitled"} | ${
-        s.lastKnownState || "unknown"
-      }\n`;
-    }
-  }
+**Tracked Sessions (${dashboardSessions.length}):**
+| ID | Title | State | Repo | Prefs | Origin |
+|---|---|---|---|---|---|
+${rows}
+
+Use message_user for all responses. Format for Telegram HTML.`;
 
   const contextMessage = {
     role: "user" as const,
     content: context,
   };
 
-  const reminderMessage = {
-    role: "user" as const,
-    content: `Reminder: Use message_user for all responses. Format for Telegram HTML.`,
-  };
-
-  return [...allMessages, contextMessage, reminderMessage];
+  return [...allMessages, contextMessage];
 };
 
 interface FileDoc {

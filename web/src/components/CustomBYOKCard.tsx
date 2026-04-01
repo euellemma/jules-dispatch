@@ -247,7 +247,7 @@ export function CustomBYOKCard({
               className={`w-full flex items-center justify-center gap-2 py-4 rounded-lg font-black transition-all active:scale-[0.98] ${
                 !isFormValid || isSaving
                   ? "bg-slate-300 cursor-not-allowed opacity-50 text-white"
-                  : "bg-yellow-400 hover:bg-yellow-500 text-black shadow-xl shadow-yellow-400/20"
+                  : "bg-primary hover:bg-primary-hover text-white shadow-xl shadow-primary/20"
               }`}
               disabled={isSaving || !isFormValid}
             >

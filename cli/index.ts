@@ -386,6 +386,25 @@ async function runConvexDeploy(
   });
 }
 
+async function buildAndUploadWeb(installPath: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const upload = spawn(
+      "npx",
+      ["@convex-dev/static-hosting", "upload", "--build", "--prod"],
+      {
+        cwd: installPath,
+        stdio: "inherit",
+        shell: true,
+        env: { ...process.env },
+      },
+    );
+
+    upload.on("close", (code) => {
+      resolve(code === 0);
+    });
+  });
+}
+
 async function setupTelegramWebhook(
   telegramToken: string,
   siteUrl: string,
@@ -906,7 +925,23 @@ async function runFreshWizard(): Promise<void> {
     );
 
     if (deploySuccess) {
-      s.stop(c.green("Deployed successfully!"));
+      s.stop(c.green("Backend deployed successfully!"));
+
+      // Build and upload web UI
+      console.log();
+      s.start("Building and uploading web UI...");
+      const webUploadSuccess = await buildAndUploadWeb(context.installPath!);
+
+      if (webUploadSuccess) {
+        s.stop(c.green("Web UI deployed!"));
+      } else {
+        s.stop(c.yellow("Web UI upload failed"));
+        p.log.warn(
+          c.yellow("\n⚠️  Settings page may not work. You can retry with:"),
+        );
+        p.log.info(c.dim("  cd " + context.installPath));
+        p.log.info(c.dim("  npm run deploy:web"));
+      }
 
       const info = parseDeployKey(config.deployKey);
       if (info) {
@@ -1037,7 +1072,22 @@ async function runUpdateCommand(): Promise<void> {
       const success = await runConvexDeploy(config.deployKey, installPath);
 
       if (success) {
-        s.stop(c.green("Deployed successfully!"));
+        s.stop(c.green("Backend deployed successfully!"));
+
+        // Build and upload web UI
+        s.start("Building and uploading web UI...");
+        const webUploadSuccess = await buildAndUploadWeb(installPath);
+
+        if (webUploadSuccess) {
+          s.stop(c.green("Web UI deployed!"));
+        } else {
+          s.stop(c.yellow("Web UI upload failed"));
+          p.log.warn(
+            c.yellow("\n⚠️  Settings page may not work. You can retry with:"),
+          );
+          p.log.info(c.dim(`  cd ${installPath}`));
+          p.log.info(c.dim("  npm run deploy:web"));
+        }
 
         const keyInfo = parseDeployKey(config.deployKey);
         if (keyInfo) {
@@ -1136,7 +1186,23 @@ async function runDeployCommand(): Promise<void> {
   const success = await runConvexDeploy(deployKey, installPath);
 
   if (success) {
-    s.stop(c.green("Deployed successfully!"));
+    s.stop(c.green("Backend deployed successfully!"));
+
+    // Build and upload web UI
+    console.log();
+    s.start("Building and uploading web UI...");
+    const webUploadSuccess = await buildAndUploadWeb(installPath);
+
+    if (webUploadSuccess) {
+      s.stop(c.green("Web UI deployed!"));
+    } else {
+      s.stop(c.yellow("Web UI upload failed"));
+      p.log.warn(
+        c.yellow("\n⚠️  Settings page may not work. You can retry with:"),
+      );
+      p.log.info(c.dim(`  cd ${installPath}`));
+      p.log.info(c.dim("  npm run deploy:web"));
+    }
 
     if (keyInfo) {
       writeEnvLocal(installPath, {

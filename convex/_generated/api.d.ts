@@ -24,7 +24,6 @@ import type * as memory_index from "../memory/index.js";
 import type * as memory_instructions from "../memory/instructions.js";
 import type * as memory_processor from "../memory/processor.js";
 import type * as polling_actions from "../polling/actions.js";
-import type * as sentry from "../sentry.js";
 import type * as sessions_actions from "../sessions/actions.js";
 import type * as sessions_db from "../sessions/db.js";
 import type * as sessions_sessionManager from "../sessions/sessionManager.js";
@@ -65,7 +64,6 @@ declare const fullApi: ApiFromModules<{
   "memory/instructions": typeof memory_instructions;
   "memory/processor": typeof memory_processor;
   "polling/actions": typeof polling_actions;
-  sentry: typeof sentry;
   "sessions/actions": typeof sessions_actions;
   "sessions/db": typeof sessions_db;
   "sessions/sessionManager": typeof sessions_sessionManager;

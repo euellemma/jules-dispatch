@@ -2,7 +2,9 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Release } from "./types";
 
-function _parseVersion(version: string): { major: number; minor: number; patch: number } | null {
+function _parseVersion(
+  version: string,
+): { major: number; minor: number; patch: number } | null {
   const match = version.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!match) return null;
   return {
@@ -12,17 +14,10 @@ function _parseVersion(version: string): { major: number; minor: number; patch: 
   };
 }
 
-function _compareVersions(a: string, b: string): number {
-  const vA = _parseVersion(a);
-  const vB = _parseVersion(b);
-  if (!vA || !vB) return 0;
-
-  if (vA.major !== vB.major) return vA.major - vB.major;
-  if (vA.minor !== vB.minor) return vA.minor - vB.minor;
-  return vA.patch - vB.patch;
-}
-
-function shouldNotify(release: Release, currentVersion: string | null): boolean {
+function shouldNotify(
+  release: Release,
+  currentVersion: string | null,
+): boolean {
   if (!currentVersion) return true;
 
   const releaseParsed = _parseVersion(release.version);
@@ -39,7 +34,7 @@ function shouldNotify(release: Release, currentVersion: string | null): boolean 
 function formatNotification(release: Release): string {
   const badge = release.type === "major" ? "🔴 MAJOR" : "🟡 MINOR";
   let message = `${badge} Update Available: v${release.version}\n\n`;
-  message += `📦 ${release.title}\n\n`;
+  message += `📦 ${release.title}\n`;
   message += release.body;
 
   if (release.url) {
@@ -61,7 +56,10 @@ export const checkForUpdates = internalAction({
       return;
     }
 
-    const users = await ctx.runQuery(internal.users.db.getAllUsersForUpdates, {});
+    const users = await ctx.runQuery(
+      internal.users.db.getAllUsersForUpdates,
+      {},
+    );
 
     for (const user of users) {
       const lastNotified = user.lastNotifiedVersion ?? null;
@@ -76,7 +74,10 @@ export const checkForUpdates = internalAction({
               message: notification,
             });
           } catch (err) {
-            console.error(`[updater] Failed to send notification to ${user.telegramChatId}:`, err);
+            console.error(
+              `[updater] Failed to send notification to ${user.telegramChatId}:`,
+              err,
+            );
           }
 
           await ctx.runMutation(internal.users.db.markNotifiedVersion, {

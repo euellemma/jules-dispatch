@@ -17,13 +17,9 @@ export function SuccessScreen() {
       </p>
       
       <div className="bg-transparent p-6 rounded-lg border border-slate-200 w-full max-w-sm">
-        <p className="text-slate-600 font-medium mb-4">
+        <p className="text-slate-600 font-medium">
           Please return to your Telegram bot and send a message to start chatting.
         </p>
-        <div className="inline-flex items-center gap-2 px-4 py-2 bg-transparent rounded-lg border border-slate-200 text-xs font-bold text-slate-400">
-          <span className="w-2 h-2 bg-primary/30 rounded-full animate-pulse"></span>
-          Tip: You can now close this tab.
-        </div>
       </div>
     </div>
   );
