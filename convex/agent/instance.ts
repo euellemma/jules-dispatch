@@ -14,73 +14,6 @@ interface MemoryDoc {
   lastObservedAt: number;
 }
 
-const memoryContextHandler: ContextHandler = async (ctx, args) => {
-  const { threadId, allMessages } = args;
-  if (!threadId) return allMessages;
-
-  const memory = (await ctx.runQuery(internal.memory.db.getMemory, {
-    threadId,
-  })) as MemoryDoc | null;
-
-  if (!memory) {
-    await ctx.runMutation(internal.memory.db.initializeMemory, {
-      threadId,
-    });
-    return allMessages;
-  }
-
-  // OPTIMIZATION: Filter out raw messages that have already been summarized into observations
-  // This prevents duplication and context bloat.
-  // Note: allMessages contains the message history from the agent component.
-  // Each message has a _creationTime if it came from the DB.
-  const filteredMessages = (allMessages as any[]).filter((m) => {
-    // If it's a new unsaved message or no creation time, keep it
-    if (!m._creationTime) return true;
-    // Keep it if it happened AFTER the last observation compaction
-    return m._creationTime > (memory.lastObservedAt || 0);
-  });
-
-  if (!memory.activeObservations) {
-    return filteredMessages;
-  }
-
-  const contextMessage = {
-    role: "user" as const,
-    content: `# Observations (Summary of earlier conversation)\n${memory.activeObservations}`,
-  };
-
-  ctx.runMutation(internal.memory.processor.scheduleObservation, {
-    threadId,
-  });
-
-  return [...filteredMessages, contextMessage];
-};
-
-const tasksContextHandler: ContextHandler = async (ctx, args) => {
-  const { threadId, allMessages } = args;
-  if (!threadId) return allMessages;
-
-  const tasks = (await ctx.runQuery(
-    internal.tasks.listTasksForThread,
-    {
-      threadId,
-    },
-  )) as Array<{ key: string; content: string }>;
-
-  if (tasks.length === 0) return allMessages;
-
-  const formattedTasks = tasks
-    .map((t) => `[KEY: ${t.key}]\n${t.content}`)
-    .join("\n\n---\n\n");
-
-  const contextMessage = {
-    role: "user" as const,
-    content: `### CURRENT PROJECT todo/task LISTS\n\n${formattedTasks}\n\nUse the update_task_list tool to maintain these lists. This is your project's persistent memory and source of truth for goals and progress.`,
-  };
-
-  return [...allMessages, contextMessage];
-};
-
 interface JulesSession {
   julesSessionId: string;
   shortName?: string;
@@ -96,49 +29,6 @@ interface JulesSession {
   lastActivity?: string;
 }
 
-const sessionContextHandler: ContextHandler = async (ctx, args) => {
-  const { threadId, allMessages } = args;
-  if (!threadId) return allMessages;
-
-  let allSessions: JulesSession[];
-  try {
-    allSessions = (await ctx.runQuery(
-      internal.sessions.db.getAllSessions,
-      {},
-    )) as JulesSession[];
-  } catch (error) {
-    console.error("[sessionContextHandler] Failed to fetch sessions:", error);
-    return allMessages;
-  }
-
-  const dashboardSessions = allSessions.filter(s => s.inDashboard);
-
-  if (dashboardSessions.length === 0) {
-    return allMessages;
-  }
-
-  const rows = dashboardSessions.map((s) => {
-    const prefs = s.prefs ? `${s.prefs.approval || "confirm"}/${s.prefs.verbosity || "milestones"}` : "confirm/milestones";
-    return `| ${s.julesSessionId} | ${s.shortName || "untitled"} | ${s.lastKnownState || "unknown"} | ${s.repo || "repoless"} | ${prefs} | ${s.origin || "discovered"} |`;
-  }).join("\n");
-
-  const context = `### JULES SESSION DASHBOARD
-
-**Tracked Sessions (${dashboardSessions.length}):**
-| ID | Title | State | Repo | Prefs | Origin |
-|---|---|---|---|---|---|
-${rows}
-
-Use message_user for all responses. Format for Telegram HTML.`;
-
-  const contextMessage = {
-    role: "user" as const,
-    content: context,
-  };
-
-  return [...allMessages, contextMessage];
-};
-
 interface FileDoc {
   _id: string;
   originalName: string;
@@ -148,68 +38,101 @@ interface FileDoc {
   status: string;
 }
 
-const filesContextHandler: ContextHandler = async (ctx, args) => {
+interface TaskDoc {
+  key: string;
+  content: string;
+}
+
+export const unifiedContextHandler: ContextHandler = async (ctx, args) => {
   const { threadId, allMessages } = args;
   if (!threadId) return allMessages;
 
-  const files = (await ctx.runQuery(internal.files.db.getThreadFiles, {
-    threadId,
-  })) as FileDoc[];
+  // Fetch all context data in parallel
+  const [memory, sessions, tasks, files] = await Promise.all([
+    ctx.runQuery(internal.memory.db.getMemory, { threadId }) as Promise<MemoryDoc | null>,
+    ctx.runQuery(internal.sessions.db.getAllSessions, {}) as Promise<JulesSession[]>,
+    ctx.runQuery(internal.tasks.listTasksForThread, { threadId }) as Promise<TaskDoc[]>,
+    ctx.runQuery(internal.files.db.getThreadFiles, { threadId }) as Promise<FileDoc[]>,
+  ]);
 
-  if (files.length === 0) return allMessages;
-
-  const unregistered = files.filter((f) => f.status === "unregistered");
-  const registered = files.filter((f) => f.status === "registered");
-
-  let dashboard = `### UPLOADED FILES\n\n`;
-
-  if (unregistered.length > 0) {
-    dashboard += `**Inbox (Unregistered)**\nThe following files were just uploaded. Use 'handle_files' in the background to name them logically (e.g. 'sales-plan.md') based on the caption/original name. Once registered, you can analyze them.\n`;
-    unregistered.forEach((f) => {
-      dashboard += `- ID: ${f._id} | Original Name: ${
-        f.originalName
-      } | Caption: ${f.caption || "None"} | Size: ${Math.round(
-        f.size / 1024,
-      )}KB\n`;
-    });
-    dashboard += `\n`;
+  // Initialize memory if needed
+  if (!memory) {
+    await ctx.runMutation(internal.memory.db.initializeMemory, { threadId });
   }
 
-  if (registered.length > 0) {
-    dashboard += `**Registered Files**\nYou can analyze these using the 'research' tool:\n`;
-    registered.forEach((f) => {
-      dashboard += `- ID: ${f._id} | Name: ${f.assignedName} | Size: ${Math.round(
-        f.size / 1024,
-      )}KB\n`;
+  // Schedule observation compaction (fire-and-forget)
+  ctx.runMutation(internal.memory.processor.scheduleObservation, { threadId });
+
+  // Filter messages based on memory's lastObservedAt
+  const filteredMessages = (allMessages as any[]).filter((m) => {
+    if (!m._creationTime) return true;
+    return m._creationTime > (memory?.lastObservedAt || 0);
+  });
+
+  // Build context messages
+  const contextMessages: Array<{ role: "user"; content: string }> = [];
+
+  // 1. Memory observations
+  if (memory?.activeObservations) {
+    contextMessages.push({
+      role: "user",
+      content: `# Observations (Summary of earlier conversation)\n${memory.activeObservations}`,
     });
-    dashboard += `\n`;
   }
 
-  const contextMessage = {
-    role: "user" as const,
-    content: dashboard,
-  };
+  // 2. Session dashboard
+  const dashboardSessions = sessions.filter(s => s.inDashboard);
+  if (dashboardSessions.length > 0) {
+    const rows = dashboardSessions.map((s) => {
+      const prefs = s.prefs ? `${s.prefs.approval || "confirm"}/${s.prefs.verbosity || "milestones"}` : "confirm/milestones";
+      return `| ${s.julesSessionId} | ${s.shortName || "untitled"} | ${s.lastKnownState || "unknown"} | ${s.repo || "repoless"} | ${prefs} | ${s.origin || "discovered"} |`;
+    }).join("\n");
 
-  return [...allMessages, contextMessage];
-};
+    contextMessages.push({
+      role: "user",
+      content: `### JULES SESSION DASHBOARD\n\n**Tracked Sessions (${dashboardSessions.length}):**\n| ID | Title | State | Repo | Prefs | Origin |\n|---|---|---|---|---|---|\n${rows}\n\nUse message_user for all responses. Format for Telegram HTML.`,
+    });
+  }
 
-const combinedContextHandler: ContextHandler = async (ctx, args) => {
-  // 1. First, apply memory handler which will filter raw messages based on lastObservedAt
-  const messagesWithMemory = await memoryContextHandler(ctx, args);
+  // 3. Tasks
+  if (tasks.length > 0) {
+    const formattedTasks = tasks.map((t) => `[KEY: ${t.key}]\n${t.content}`).join("\n\n---\n\n");
+    contextMessages.push({
+      role: "user",
+      content: `### CURRENT PROJECT todo/task LISTS\n\n${formattedTasks}\n\nUse the update_task_list tool to maintain these lists. This is your project's persistent memory and source of truth for goals and progress.`,
+    });
+  }
 
-  // 2. Chain others using the filtered message list
-  const messagesWithDashboard = await sessionContextHandler(ctx, {
-    ...args,
-    allMessages: messagesWithMemory,
-  });
-  const messagesWithTasks = await tasksContextHandler(ctx, {
-    ...args,
-    allMessages: messagesWithDashboard,
-  });
-  return await filesContextHandler(ctx, {
-    ...args,
-    allMessages: messagesWithTasks,
-  });
+  // 4. Files
+  if (files.length > 0) {
+    const unregistered = files.filter((f) => f.status === "unregistered");
+    const registered = files.filter((f) => f.status === "registered");
+
+    let filesDashboard = `### UPLOADED FILES\n\n`;
+
+    if (unregistered.length > 0) {
+      filesDashboard += `**Inbox (Unregistered)**\nThe following files were just uploaded. Use 'handle_files' in the background to name them logically (e.g. 'sales-plan.md') based on the caption/original name. Once registered, you can analyze them.\n`;
+      unregistered.forEach((f) => {
+        filesDashboard += `- ID: ${f._id} | Original Name: ${f.originalName} | Caption: ${f.caption || "None"} | Size: ${Math.round(f.size / 1024)}KB\n`;
+      });
+      filesDashboard += `\n`;
+    }
+
+    if (registered.length > 0) {
+      filesDashboard += `**Registered Files**\nYou can analyze these using the 'research' tool:\n`;
+      registered.forEach((f) => {
+        filesDashboard += `- ID: ${f._id} | Name: ${f.assignedName} | Size: ${Math.round(f.size / 1024)}KB\n`;
+      });
+      filesDashboard += `\n`;
+    }
+
+    contextMessages.push({
+      role: "user",
+      content: filesDashboard,
+    });
+  }
+
+  return [...filteredMessages, ...contextMessages];
 };
 
 export const julesAgent = new Agent(components.agent, {
@@ -218,7 +141,7 @@ export const julesAgent = new Agent(components.agent, {
     throw new Error("Model must be passed explicitly via generateText options");
   }) as any,
   instructions: systemInstructions,
-  contextHandler: combinedContextHandler,
+  contextHandler: unifiedContextHandler,
   maxSteps: 50,
   tools: {
     create_session: tools.create_session,

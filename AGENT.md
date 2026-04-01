@@ -38,10 +38,10 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 - **`convex/sessions/actions.ts`**: Node bridge to the `@google/jules-sdk`. Handles `createSession`, `sendMessage`, `approvePlan`, `sendTelegramMessage`, `getSessionActivities`.
 - **`convex/sessions/sessionManager.ts`**: Session manager actions:
   - `getAllSessionsBasic` — Lightweight session list (no PR metadata). Used by `manage_sessions`.
-  - `getAllSessionsWithInfo` — Full session list with batch PR metadata. Used by `query_sessions` / `list_sessions`.
+  - `getAllSessionsWithInfo` — Full session list with batch PR metadata. Used by `query_sessions`.
   - `getSessionDetails` — Fetches details + activity log for specific sessions. Accepts optional pre-fetched sessions array to avoid re-fetching.
   - **No auto-discovery** — all functions are pure read, no side effects.
-- **`convex/sessions/sessionManagerAgent.ts`**: Session Manager sub-agent with `list_sessions` (fuzzy search) and `inspect_session` tools. Local tool closures use pre-fetched sessions array passed from `query_sessions` — no re-fetching inside the sub-agent.
+- **`convex/sessions/sessionManagerAgent.ts`**: Session Manager sub-agent. Contains `spawnSessionManagerAgent` which creates local tool closures (`local_list_sessions`, `local_inspect_session`) that operate on pre-fetched sessions array passed from `query_sessions` — no re-fetching inside the sub-agent.
 - **`convex/sessions/db.ts`**: Session table CRUD:
   - `addSession`, `updateSessionState`, `getAllSessions`, `getDashboardSessions`, `getActiveSessions`, `getUnacknowledgedSessions`, `upsertDiscoveredSession`
   - `getBulkSessionOutputs` — Batch PR metadata query (returns `Map<julesSessionId, outputs[]>`). Eliminates N+1 pattern.

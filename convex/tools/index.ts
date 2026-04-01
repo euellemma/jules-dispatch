@@ -2,6 +2,7 @@ import { createTool } from "@convex-dev/agent";
 import { z } from "zod";
 import { internal } from "../_generated/api";
 import { spawnSessionManagerAgent } from "../sessions/sessionManagerAgent";
+import { resolveLanguageModel } from "../agent/modelResolver";
 import type { SessionQueryResult, SessionInfo, SessionUpdatePatch, FileRegistrationResult } from "../types";
 
 export const message_jules = createTool({
@@ -284,13 +285,14 @@ export const query_sessions = createTool({
     }
 
     const sessions = result.sessions || [];
-    const prompt = args.prompt
-      || "Show me my sessions and let me know if any need attention.";
+    const prompt = args.prompt|| "Show me my sessions and let me know if any need attention.";
 
     if (!ctx.threadId) throw new Error("Tool must be called within a thread context.");
-    return spawnSessionManagerAgent(ctx, sessions, prompt, ctx.threadId);
-    },
-    });
+    
+    const model = await resolveLanguageModel(ctx, ctx.threadId);
+    return spawnSessionManagerAgent(ctx, sessions, prompt, ctx.threadId, model);
+  },
+});
 
 /**
  * manage_sessions — Bulk manage Jules sessions.

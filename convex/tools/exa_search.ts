@@ -2,14 +2,9 @@ import { createTool, Agent } from "@convex-dev/agent";
 import { z } from "zod";
 import Exa from "exa-js";
 import { components, internal } from "../_generated/api";
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { resolveLanguageModel } from "../agent/modelResolver";
 
-const DELETE_RESEARCH_THREADS = false;
-
-const anthropic = createAnthropic({
-  baseURL: "https://opencode.ai/zen/go/v1/",
-  apiKey: process.env.OPENCODE_GO_API_KEY,
-});
+const DELETE_RESEARCH_THREADS = true;
 
 async function getExaApiKey(ctx: any): Promise<string | null> {
   const telegramChatId = await ctx.runQuery((internal as any).users.db.getChatIdForThread, { threadId: ctx.threadId });
@@ -92,13 +87,12 @@ const researchInstructions = (query: string, mode: "quick" | "deep", injectedCon
     ? ` When you have a satisfactory answer, end your response with on its own line: NEEDS DEEP RESEARCH: yes/no - brief reason if yes. Also include: CONFIDENCE: high/medium/low`
     : ` At the end, include: CONFIDENCE: high/medium/low`);
 
-async function runResearchAgent(ctx: any, query: string, mode: "quick" | "deep", injectedContext?: string): Promise<string> {
+async function runResearchAgent(ctx: any, query: string, mode: "quick" | "deep", languageModel: any, injectedContext?: string): Promise<string> {
   const maxSteps = mode === "quick" ? 7 : 28;
 
-  const model = anthropic("minimax-m2.5");
   const { thread } = await new Agent(components.agent, {
     name: "Research Assistant",
-    languageModel: model,
+    languageModel: languageModel,
   }).createThread(ctx, {
     title: `Research: ${query}`,
   });
@@ -120,7 +114,7 @@ async function runResearchAgent(ctx: any, query: string, mode: "quick" | "deep",
   try {
     const researchAgent = new Agent(components.agent, {
       name: "Research Assistant",
-      languageModel: model,
+      languageModel: languageModel,
       instructions: researchInstructions(query, mode, injectedContext),
       tools: {
         exa_search,
@@ -210,6 +204,6 @@ export const research = createTool({
       }
     }
 
-    return runResearchAgent(ctx, args.query, args.mode, injectedContext.trim() || undefined);
+    return runResearchAgent(ctx, args.query, args.mode, await resolveLanguageModel(ctx, ctx.threadId), injectedContext.trim() || undefined);
   },
 });

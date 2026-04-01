@@ -135,7 +135,7 @@ export const getAllSessionsBasic = internalAction({
 
 /**
  * getAllSessionsWithInfo — fetch all Jules sessions merged with DB metadata + PR metadata.
- * Used by query_sessions / list_sessions which need full metadata for fuzzy search.
+ * Used by query_sessions which needs full metadata for fuzzy search.
  */
 export const getAllSessionsWithInfo = internalAction({
   args: {

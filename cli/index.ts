@@ -76,9 +76,9 @@ function printStep(message: string): void {
   p.log.step(message);
 }
 
-function link(url: string, text: string): string {
-  // Terminal hyperlink escape sequence with URL in brackets and arrow indicator after
-  return `\x1b]8;;${url}\x1b\\[${c.dim(url)}]${text}\x1b]8;;\x1b\\`;
+function link(url: string): string {
+  // Terminal hyperlink using OSC 8 escape sequence - clickable URL that displays as-is
+  return `\x1b]8;;${url}\x1b\\${c.cyan(url)}\x1b]8;;\x1b\\`;
 }
 
 // ─── Git & Archive Helpers ──────────────────────────────────────────────────
@@ -447,7 +447,7 @@ async function promptForDeployKey(): Promise<string | null> {
   p.log.message(c.cyan("🔗 Convex Deploy Key"));
   p.log.info(
     c.dim(
-      `1. Go to ${link("https://dashboard.convex.dev", "dashboard.convex.dev")}`,
+      `1. Go to ${link("https://dashboard.convex.dev")}`,
     ),
   );
   p.log.info(c.dim("2. Create a new project"));
@@ -578,7 +578,7 @@ async function runStepLocation(): Promise<string> {
 async function runStepTelegram(): Promise<string> {
   const token = await p.password({
     message:
-      `Enter your Telegram bot token ${link("https://t.me/BotFather", "(create via Bot Father ↗)")}`,
+      `Enter your Telegram bot token ${link("https://t.me/BotFather")}`,
     mask: "•",
     validate: (value) => {
       if (!value) return "Telegram bot token is required";
@@ -594,7 +594,7 @@ async function runStepTelegram(): Promise<string> {
 
 async function runStepJules(): Promise<string> {
   const apiKey = await p.password({
-    message: `Enter your Jules API key ${link("https://jules.google.com/settings/api", "↗")}`,
+    message: `Enter your Jules API key ${link("https://jules.google.com/settings/api")}`,
     mask: "•",
     validate: (value) => {
       if (!value) return "Jules API key is required";
@@ -692,7 +692,7 @@ async function runStepExa(): Promise<{ useExa: boolean; apiKey?: string }> {
   }
 
   const apiKey = await p.text({
-    message: `Enter Exa API key ${link("https://dashboard.exa.ai", "↗")}`,
+    message: `Enter Exa API key ${link("https://dashboard.exa.ai")}`,
     validate: (v) => {
       if (!v || v.trim().length < 10) return "Please enter a valid API key";
     },
@@ -1103,7 +1103,7 @@ async function runUpdateCommand(): Promise<void> {
             );
           }
 
-          p.log.success(`Dashboard: ${link(keyInfo.convexSiteUrl + "/settings", "↗")}`);
+          p.log.success(`Dashboard: ${link(keyInfo.convexSiteUrl + "/settings")}`);
         }
       } else {
         s.stop(c.red("Deployment failed"));
@@ -1219,7 +1219,7 @@ async function runDeployCommand(): Promise<void> {
 
       console.log();
       p.log.success(`${c.bold("Your bot is live!")}`);
-      p.log.info(`Dashboard: ${link(keyInfo.convexSiteUrl + "/settings", "↗")}`);
+      p.log.info(`Dashboard: ${link(keyInfo.convexSiteUrl + "/settings")}`);
       console.log();
       p.log.message(c.bold("Next:"));
       p.log.info(`${c.dim("1.")} cd ${installPath} && npm run dev`);
