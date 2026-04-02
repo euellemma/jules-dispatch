@@ -3,22 +3,22 @@ import { components, internal } from "../_generated/api";
 import { z } from "zod";
 import { manage_sessions } from "../tools/index";
 import type { SessionInfo } from "../types";
+import { normalizeState, isActiveState } from "../types";
 
 function formatSessionsForContext(sessions: SessionInfo[]): string {
   const tracked = sessions.filter((s) => s.inDashboard);
   const activeUntracked = sessions.filter(
-    (s) =>
-      s.acknowledged &&
-      !s.inDashboard &&
-      s.state !== "completed" &&
-      s.state !== "failed",
+    (s) => {
+      const st = normalizeState(s.state);
+      return s.acknowledged &&!s.inDashboard && isActiveState(st);
+    }
   );
   const unregistered = sessions.filter((s) => !s.acknowledged);
   const archived = sessions.filter(
-    (s) =>
-      s.acknowledged &&
-      !s.inDashboard &&
-      (s.state === "completed" || s.state === "failed"),
+    (s) => {
+      const st = normalizeState(s.state);
+      return s.acknowledged && !s.inDashboard && !isActiveState(st);
+    }
   );
 
   const lines: string[] = [];
@@ -81,38 +81,30 @@ function resolveSinceHours(since: string): number | null {
   }
 }
 
-function filterByState(session: SessionInfo, state: string): boolean {
-  const s = (session.state || "").toLowerCase();
-  switch (state) {
-    case "active":
-      return (
-        s !== "completed" && s !== "failed" && s !== "awaiting_user_feedback"
-      );
-    case "completed":
-      return s === "completed";
-    case "failed":
-      return s === "failed";
-    case "awaiting_feedback":
-      return s === "awaiting_user_feedback";
-    case "running":
-      return s === "running";
-    case "all":
-      return true;
-    default:
-      return true;
-  }
-}
-
 const sessionManagerInstructions = `You are the Session Manager for Jules Dispatch.
 
 A summary of tracked and active sessions is injected in your context. Use it to answer questions, find sessions, and manage them.
 Make sure to report your usage of tools (not verbose output but success/failure of each tool calls you make)
 
+## Jules Session States
+
+Sessions can be in one of these states:
+- QUEUED: Waiting to be processed
+- PLANNING: Creating a plan
+- AWAITING_PLAN_APPROVAL: Plan ready, needs user approval
+- AWAITING_USER_FEEDBACK: Needs user input
+- IN_PROGRESS: Actively working
+- PAUSED: Session paused (can be resumed)
+- FAILED: Session failed
+- COMPLETED: Successfully completed
+
+Sessions are RESUMABLE - sending a message to a COMPLETED/FAILED session will resume it.
+
 ## Your Tools
 
 **list_sessions** — Discover and search ALL sessions from the Jules API. Supports filters:
 - since: "1h" | "6h" | "24h" | "7d" | "30d" | "all" — time window (default "24h")
-- state: "active" | "completed" | "failed" | "awaiting_feedback" | "running" | "all"
+- state: one or more states from: QUEUED, PLANNING, AWAITING_PLAN_APPROVAL, AWAITING_USER_FEEDBACK, IN_PROGRESS, PAUSED, FAILED, COMPLETED, all
 - topic: fuzzy search on titles, repos, PR metadata
 Use this when the user asks to "find", "list", or "show" sessions.
 
@@ -136,8 +128,9 @@ Use this when the user asks to "find", "list", or "show" sessions.
 When calling manage_sessions, you can use 'target':
 - 'unregistered': All sessions not yet acknowledged.
 - 'tracked': All sessions currently in the dashboard.
-- 'active': All currently running sessions.
-- 'completed': All sessions that have finished or failed.
+- 'active': All non-terminal sessions (QUEUED, PLANNING, IN_PROGRESS, etc.)
+- 'needs_attention': Sessions awaiting plan approval, user feedback, or paused.
+- 'terminal': All sessions that are COMPLETED or FAILED.
 - 'all': Everything.`;
 
 export async function spawnSessionManagerAgent(
@@ -149,7 +142,7 @@ export async function spawnSessionManagerAgent(
 ): Promise<string> {
   const local_list_sessions = createTool({
     description:
-      "Browse or search ALL Jules sessions. Filters by time (since) and state. Use 'topic' for fuzzy search on titles, repos, and PR metadata.",
+      "Browse or search ALL Jules sessions. Filters by time (since) and state(s). Use 'topic' for fuzzy search on titles, repos, and PR metadata.",
     inputSchema: z.object({
       since: z
         .enum(["1h", "6h", "24h", "7d", "30d", "all"])
@@ -158,17 +151,13 @@ export async function spawnSessionManagerAgent(
           "Only return sessions created within this time window. Default '24h'.",
         ),
       state: z
-        .enum([
-          "active",
-          "completed",
-          "failed",
-          "awaiting_feedback",
-          "running",
-          "all",
-        ])
-        .default("all")
+        .array(z.enum([
+          "STATE_UNSPECIFIED", "QUEUED", "PLANNING", "AWAITING_PLAN_APPROVAL",
+          "AWAITING_USER_FEEDBACK", "IN_PROGRESS", "PAUSED", "FAILED", "COMPLETED", "all"
+        ]))
+        .optional()
         .describe(
-          "Filter by session state. 'active' = running sessions only. Default 'all'.",
+          "Filter by one or more session states. Omit for no state filter.",
         ),
       topic: z
         .string()
@@ -195,10 +184,12 @@ export async function spawnSessionManagerAgent(
       }
 
       // 2. Apply State Filter
-      if (args.state !== "all") {
-        filtered = filtered.filter((s: SessionInfo) =>
-          filterByState(s, args.state),
-        );
+      if (args.state && !args.state.includes("all")) {
+        const states = args.state.map(s => s.toUpperCase());
+        filtered = filtered.filter((s: SessionInfo) => {
+          const normalized = normalizeState(s.state);
+          return states.includes(normalized);
+        });
       }
 
       // 3. Apply Fuzzy Topic Search
@@ -228,7 +219,8 @@ export async function spawnSessionManagerAgent(
         })
         .join("\n");
 
-      return `### Session List (${args.since}, state=${args.state}${args.topic ? ", topic: " + args.topic : ""})\nFound ${filtered.length} session(s)\n| ID | Title | Repo | State |\n|---|---|---|---|\n${table}\n\nTip: Use 'inspect_session(id)' to see full activity logs for a specific session.`;
+      const stateDesc = args.state ? args.state.join(",") : "all";
+      return `### Session List (${args.since}, states=${stateDesc}${args.topic ? ", topic: " + args.topic : ""})\nFound ${filtered.length} session(s)\n| ID | Title | Repo | State |\n|---|---|---|---|\n${table}\n\nTip: Use 'inspect_session(id)' to see full activity logs for a specific session.`;
     },
   });
 

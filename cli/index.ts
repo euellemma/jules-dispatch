@@ -454,8 +454,10 @@ async function setupTelegramWebhook(
         c.yellow(`⚠️ Webhook setup: ${data.description || "Unknown error"}`),
       );
     }
-  } catch {
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
     p.log.warn(c.yellow("⚠️ Could not set Telegram webhook automatically"));
+    p.log.info(c.dim(`Error: ${errorMsg}`));
     p.log.info(c.dim(`Set it manually: ${apiUrl}`));
   }
 }

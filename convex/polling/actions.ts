@@ -3,7 +3,8 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { julesAgent, resolveLanguageModel } from "../agent/instance";
 import { getJulesClient } from "../tools/nodeActions";
-import type { ProcessedOutput } from "../types";
+import type { ProcessedOutput, JulesSessionState } from "../types";
+import { isActiveState } from "../types";
 import type { GenericActionCtx } from "convex/server";
 
 // Type for action context passed to helper functions
@@ -81,13 +82,7 @@ export const pollJulesActivities = internalAction({
       try {
         const julesSession = sessionMap.get(sessionDoc.julesSessionId);
         if (!julesSession) {
-          console.warn(`[pollJulesActivities] Tracked session ${sessionDoc.julesSessionId} not found on Jules side — marking inactive`);
-          await ctx.runMutation(internal.sessions.db.updateSessionState, {
-            sessionId: sessionDoc._id,
-            lastKnownState: sessionDoc.lastKnownState || "unknown",
-            isActive: false,
-            lastProcessedActivityTime: sessionDoc.lastProcessedActivityTime || Date.now(),
-          });
+          console.warn(`[pollJulesActivities] Tracked session ${sessionDoc.julesSessionId} not found on Jules side — skipping`);
           continue;
         }
 
@@ -142,22 +137,24 @@ export const pollJulesActivities = internalAction({
               });
            }
 
-           // Step 12: Combined state update (single mutation)
-           await ctx.runMutation(internal.sessions.db.updateSessionState, {
+            // State update after processing activities
+            await ctx.runMutation(internal.sessions.db.updateSessionState, {
               sessionId: sessionDoc._id,
               lastKnownState: currentState,
-              isActive: true,
               lastProcessedActivityTime: maxTime
-           });
+            });
         }
 
         // 2. Handle Major State Changes
         if (currentState !== lastKnownState) {
           console.log(`[pollJulesActivities] Session ${sessionDoc.shortName}: ${lastKnownState || 'unknown'} -> ${currentState}`);
           
-          // Check for resume (completed/failed -> running)
-          const wasCompleted = lastKnownState === 'completed' || lastKnownState === 'failed';
-          const isResumed = wasCompleted && (currentState as string) === 'running';
+          // Check for resume (COMPLETED/FAILED -> active state)
+          const lastUpper = (lastKnownState || "").toUpperCase();
+          const currentUpper = (currentState || "").toUpperCase();
+          const wasTerminal = lastUpper === "COMPLETED" || lastUpper === "FAILED";
+          const isNowActive = isActiveState(currentUpper);
+          const isResumed = wasTerminal && isNowActive;
           
           if (isResumed) {
             wakerEvents.push({
@@ -178,7 +175,6 @@ export const pollJulesActivities = internalAction({
           }
           
           let updatesText = `[SYSTEM: State Change - ${sessionDoc.shortName} -> ${currentState}]\n\n`;
-          const isActive = (currentState !== 'completed' && currentState !== 'failed');
 
           if (newActivities.length > 0) {
             updatesText += `Recent background activities:\n`;
@@ -231,11 +227,10 @@ export const pollJulesActivities = internalAction({
             });
           }
 
-          // Step 12: Combined state update (single mutation with all fields)
+          // State update after state change
           await ctx.runMutation(internal.sessions.db.updateSessionState, {
             sessionId: sessionDoc._id,
             lastKnownState: currentState,
-            isActive: isActive,
             lastProcessedActivityTime: maxTime
           });
 

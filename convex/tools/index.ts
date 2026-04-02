@@ -3,7 +3,8 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import { spawnSessionManagerAgent } from "../sessions/sessionManagerAgent";
 import { resolveLanguageModel } from "../agent/modelResolver";
-import type { SessionQueryResult, SessionInfo, SessionUpdatePatch, FileRegistrationResult } from "../types";
+import type { SessionQueryResult, SessionInfo, SessionUpdatePatch, FileRegistrationResult, JulesSessionState } from "../types";
+import { normalizeState, needsUserAction } from "../types";
 
 export const message_jules = createTool({
   description:
@@ -155,6 +156,7 @@ export const create_session = createTool({
       threadId: ctx.threadId,
       julesSessionId: res.id,
       shortName,
+      repo: args.githubRepo,
       ...(args.prefs ? { prefs: args.prefs } : {}),
     });
 
@@ -304,10 +306,13 @@ export const manage_sessions = createTool({
       .describe("REGISTER: Acknowledge unregistered sessions. TRACK: Add to dashboard. ARCHIVE: Remove tracked sessions from dashboard (untrack). CONFIGURE: Update prefs."),
     selection: z.object({
       ids: z.array(z.string()).optional().describe("Specific session IDs to target."),
-      target: z.enum(["unregistered", "active", "completed", "tracked", "all"]).optional()
-        .describe("Target groups: 'unregistered' (not yet acknowledged), 'tracked' (in dashboard), 'active' (running), 'completed' (finished/failed), or 'all'."),
-      state: z.enum(["active", "completed", "failed", "awaiting_feedback", "running", "all"]).optional()
-        .describe("Filter target by session state. Only applies when 'target' is used."),
+      target: z.enum(["unregistered", "active", "needs_attention", "terminal", "tracked", "all"]).optional()
+        .describe("Target groups: 'unregistered' (not yet acknowledged), 'tracked' (in dashboard), 'active' (non-terminal states), 'needs_attention' (awaiting plan approval, user feedback, or paused), 'terminal' (completed/failed), or 'all'."),
+      state: z.array(z.enum([
+        "STATE_UNSPECIFIED", "QUEUED", "PLANNING", "AWAITING_PLAN_APPROVAL",
+        "AWAITING_USER_FEEDBACK", "IN_PROGRESS", "PAUSED", "FAILED", "COMPLETED", "all"
+      ])).optional()
+        .describe("Filter target by Jules session state(s). Can specify multiple states as array. Use 'all' for no state filter."),
       since: z.enum(["1h", "6h", "24h", "7d", "30d", "all"]).optional()
         .describe("Filter target by creation time. Only applies when 'target' is used."),
     }).refine(s => s.ids || s.target, "Must provide either 'ids' or 'target'."),
@@ -331,17 +336,11 @@ export const manage_sessions = createTool({
       let filtered = sessions;
 
       // Apply state filter
-      if (args.selection.state && args.selection.state !== "all") {
+      if (args.selection.state && !args.selection.state.includes("all")) {
+        const states = args.selection.state.map(s => s.toUpperCase());
         filtered = filtered.filter((s: SessionInfo) => {
-          const st = (s.state || "").toLowerCase();
-          switch (args.selection.state) {
-            case "active": return st !== "completed" && st !== "failed" && st !== "awaiting_user_feedback";
-            case "completed": return st === "completed";
-            case "failed": return st === "failed";
-            case "awaiting_feedback": return st === "awaiting_user_feedback";
-            case "running": return st === "running";
-            default: return true;
-          }
+          const normalized = normalizeState(s.state);
+          return states.includes(normalized);
         });
       }
 
@@ -358,11 +357,13 @@ export const manage_sessions = createTool({
 
       // Apply target group filter
       const groupFiltered = filtered.filter((s: SessionInfo) => {
+        const st = normalizeState(s.state);
         switch (args.selection.target) {
           case "unregistered": return !s.acknowledged;
           case "tracked": return s.inDashboard;
-          case "active": return s.state !== "completed" && s.state !== "failed";
-          case "completed": return s.state === "completed" || s.state === "failed";
+          case "active": return st !== "COMPLETED" && st !== "FAILED";
+          case "needs_attention": return needsUserAction(st);
+          case "terminal": return st === "COMPLETED" || st === "FAILED";
           case "all": return true;
           default: return false;
         }

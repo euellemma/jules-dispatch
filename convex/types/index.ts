@@ -33,7 +33,6 @@ export interface JulesSessionDoc {
   shortName?: string;
   lastProcessedActivityTime: number;
   lastKnownState?: string;
-  isActive?: boolean;
   origin: "agent" | "discovered";
   acknowledged: boolean;
   inDashboard: boolean;
@@ -162,7 +161,7 @@ export interface AuthSessionDoc {
 export interface JulesApiSession {
   id: string;
   title?: string;
-  state?: "running" | "completed" | "failed" | "pending" | string;
+  state?: JulesSessionState | string;
   source?: {
     github?: string;
     githubRepo?: {
@@ -444,9 +443,69 @@ export type DeepPartial<T> = {
 };
 
 /**
- * Session state type
+ * Jules Session States (from official API)
+ * 
+ * STATE_UNSPECIFIED - State is unspecified
+ * QUEUED - Session is waiting to be processed
+ * PLANNING - Jules is creating a plan
+ * AWAITING_PLAN_APPROVAL - Plan is ready for user approval
+ * AWAITING_USER_FEEDBACK - Jules needs user input
+ * IN_PROGRESS - Jules is actively working
+ * PAUSED - Session is paused
+ * FAILED - Session failed
+ * COMPLETED - Session completed successfully
+ * 
+ * Note: Sessions are RESUMABLE - sending a message to a COMPLETED/FAILED session
+ * will transition it back to IN_PROGRESS or QUEUED.
  */
-export type SessionState = "running" | "completed" | "failed" | "pending" | string;
+export type JulesSessionState = 
+  | "STATE_UNSPECIFIED"
+  | "QUEUED"
+  | "PLANNING"
+  | "AWAITING_PLAN_APPROVAL"
+  | "AWAITING_USER_FEEDBACK"
+  | "IN_PROGRESS"
+  | "PAUSED"
+  | "FAILED"
+  | "COMPLETED";
+
+/**
+ * Check if a session state is "active" (not terminal)
+ * Active states: QUEUED, PLANNING, AWAITING_PLAN_APPROVAL, AWAITING_USER_FEEDBACK, IN_PROGRESS
+ * Terminal states: COMPLETED, FAILED
+ * Paused state: PAUSED (can be resumed)
+ */
+export function isActiveState(state: string | undefined): boolean {
+  if (!state) return false;
+  const terminalStates = ["COMPLETED", "FAILED"];
+  return !terminalStates.includes(state.toUpperCase());
+}
+
+/**
+ * Check if a session needs user action
+ * Needs action: AWAITING_PLAN_APPROVAL, AWAITING_USER_FEEDBACK, PAUSED
+ */
+export function needsUserAction(state: string | undefined): boolean {
+  if (!state) return false;
+  const actionStates = ["AWAITING_PLAN_APPROVAL", "AWAITING_USER_FEEDBACK", "PAUSED"];
+  return actionStates.includes(state.toUpperCase());
+}
+
+/**
+ * Get normalized state for display (handles lowercase/uppercase variants)
+ */
+export function normalizeState(state: string | undefined): JulesSessionState | "UNKNOWN" {
+  if (!state) return "UNKNOWN";
+  const upper = state.toUpperCase();
+  const validStates: JulesSessionState[] = [
+    "STATE_UNSPECIFIED", "QUEUED", "PLANNING", "AWAITING_PLAN_APPROVAL",
+    "AWAITING_USER_FEEDBACK", "IN_PROGRESS", "PAUSED", "FAILED", "COMPLETED"
+  ];
+  if (validStates.includes(upper as JulesSessionState)) {
+    return upper as JulesSessionState;
+  }
+  return "UNKNOWN";
+}
 
 /**
  * Session origin type

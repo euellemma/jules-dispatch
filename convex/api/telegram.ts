@@ -489,9 +489,12 @@ export const processMessageQueue = internalAction({
       const messages = pendingText
         .split("\n")
         .filter((m: string) => m.trim() !== "");
-      const batchPrompt = messages
-        .map((m: string, i: number) => `Message ${i + 1}: ${m}`)
-        .join("\n");
+      const batchPrompt =
+        messages.length === 1
+          ? messages[0]
+          : messages
+              .map((m: string, i: number) => `Message ${i + 1}: ${m}`)
+              .join("\n");
 
       const model = await resolveLanguageModel(ctx, threadId);
       await julesAgent.generateText(

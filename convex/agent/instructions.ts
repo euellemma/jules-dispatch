@@ -127,7 +127,19 @@ Send message to user on Telegram.
 - If there are no sessions yet, let the user know you're ready to help them create one when they need.
 
 ## Sessions
-Sessions are NOT discovered automatically in the background. When the user asks about sessions, use 'query_sessions' to discover them on-demand from the Jules API. The session manager supports filtering by time (since: "1h"|"6h"|"24h"|"7d"|"30d"|"all") and state (state: "active"|"completed"|"failed"|"awaiting_feedback"|"running"|"all").
+Sessions are NOT discovered automatically in the background. When the user asks about sessions, use 'query_sessions' to discover them on-demand from the Jules API.
+
+### Jules Session States
+- QUEUED: Waiting to be processed
+- PLANNING: Creating a plan
+- AWAITING_PLAN_APPROVAL: Plan ready, needs approval
+- AWAITING_USER_FEEDBACK: Needs user input
+- IN_PROGRESS: Actively working
+- PAUSED: Paused (can be resumed)
+- FAILED: Failed
+- COMPLETED: Successfully completed
+
+Sessions are RESUMABLE - sending a message to a COMPLETED/FAILED session resumes it.
 
 If the user has zero tracked sessions, suggest query_sessions to check for existing Jules sessions on first run.
 

@@ -63,6 +63,9 @@ function formatActivityLog(activities: Array<{ type?: string; createTime?: strin
 
 function extractRepo(js: JulesApiSession): string {
   try {
+    if (js.source?.github && typeof js.source.github === "string") {
+      return js.source.github;
+    }
     if (js.source?.githubRepo) {
       return `${js.source.githubRepo.owner}/${js.source.githubRepo.repo}`;
     }
@@ -128,6 +131,20 @@ export const getAllSessionsBasic = internalAction({
         createTimeMs: js.createTime ? new Date(js.createTime).getTime() : undefined,
       };
     });
+
+    const toUpsert = julesSessions.filter((js: JulesApiSession) => !dbMap.has(js.id));
+    if (toUpsert.length > 0) {
+      await Promise.all(
+        toUpsert.map((js: JulesApiSession) =>
+          ctx.runMutation(internal.sessions.db.upsertDiscoveredSession, {
+            julesSessionId: js.id,
+            lastKnownState: js.state,
+            title: js.title,
+            repo: extractRepo(js),
+          })
+        )
+      );
+    }
 
     return { success: true, sessions };
   },
@@ -211,6 +228,20 @@ export const getAllSessionsWithInfo = internalAction({
         prMetadata,
       };
     });
+
+    const toUpsert = julesSessions.filter((js: JulesApiSession) => !dbMap.has(js.id));
+    if (toUpsert.length > 0) {
+      await Promise.all(
+        toUpsert.map((js: JulesApiSession) =>
+          ctx.runMutation(internal.sessions.db.upsertDiscoveredSession, {
+            julesSessionId: js.id,
+            lastKnownState: js.state,
+            title: js.title,
+            repo: extractRepo(js),
+          })
+        )
+      );
+    }
 
     return { success: true, sessions: sessionsWithMetadata };
   },

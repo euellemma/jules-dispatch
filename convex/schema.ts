@@ -3,24 +3,22 @@ import { v } from "convex/values";
 
 export default defineSchema({
   julesSessions: defineTable({
-    threadId: v.string(), // Links to the Agent thread
-    julesSessionId: v.string(), // The remote Jules session ID
-    shortName: v.optional(v.string()), // 5-word kebab-case generated name (set when acknowledged)
-    lastProcessedActivityTime: v.number(), // timestamp/cursor for cron polling (legacy)
-    lastKnownState: v.optional(v.string()), // The last session.info().state we saw
-    isActive: v.optional(v.boolean()), // false when session reaches 'completed' or 'failed'
-    origin: v.union(v.literal("agent"), v.literal("discovered")), // "agent" = created by bot, "discovered" = found via polling
-    acknowledged: v.boolean(), // user/agent has seen and decided
-    inDashboard: v.boolean(), // shown in dashboard
+    threadId: v.string(),
+    julesSessionId: v.string(),
+    shortName: v.optional(v.string()),
+    lastProcessedActivityTime: v.number(),
+    lastKnownState: v.optional(v.string()),
+    origin: v.union(v.literal("agent"), v.literal("discovered")),
+    acknowledged: v.boolean(),
+    inDashboard: v.boolean(),
     prefs: v.optional(v.object({
       approval: v.union(v.literal("auto"), v.literal("confirm"), v.literal("strict")),
       verbosity: v.union(v.literal("silent"), v.literal("milestones"), v.literal("full")),
-    })), // Session interaction preferences toward the user
-    repo: v.optional(v.string()), // "owner/repo" extracted from github source
+    })),
+    repo: v.optional(v.string()),
   })
     .index("by_julesSessionId", ["julesSessionId"])
     .index("by_threadId", ["threadId"])
-    .index("by_isActive", ["isActive"])
     .index("by_acknowledged", ["acknowledged"])
     .index("by_inDashboard", ["inDashboard"]),
 

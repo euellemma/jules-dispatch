@@ -6,6 +6,7 @@ export const addSession = internalMutation({
     threadId: v.string(),
     julesSessionId: v.string(),
     shortName: v.string(),
+    repo: v.optional(v.string()),
     prefs: v.optional(v.object({
       approval: v.union(v.literal("auto"), v.literal("confirm"), v.literal("strict")),
       verbosity: v.union(v.literal("silent"), v.literal("milestones"), v.literal("full")),
@@ -17,11 +18,11 @@ export const addSession = internalMutation({
       julesSessionId: args.julesSessionId,
       shortName: args.shortName,
       lastProcessedActivityTime: Date.now(),
-      isActive: true,
       origin: "agent",
       acknowledged: true,
       inDashboard: true,
       prefs: args.prefs ?? { approval: "confirm", verbosity: "milestones" },
+      repo: args.repo,
     });
   }
 });
@@ -30,25 +31,13 @@ export const updateSessionState = internalMutation({
   args: { 
     sessionId: v.id("julesSessions"), 
     lastKnownState: v.string(),
-    isActive: v.boolean(),
     lastProcessedActivityTime: v.number()
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.sessionId, { 
       lastKnownState: args.lastKnownState,
-      isActive: args.isActive,
       lastProcessedActivityTime: args.lastProcessedActivityTime
     });
-  }
-});
-
-export const getActiveSessions = internalQuery({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db
-      .query("julesSessions")
-      .filter((q) => q.eq(q.field("isActive"), true))
-      .collect();
   }
 });
 
@@ -83,6 +72,8 @@ export const upsertDiscoveredSession = internalMutation({
   args: {
     julesSessionId: v.string(),
     lastKnownState: v.optional(v.string()),
+    title: v.optional(v.string()),
+    repo: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -91,20 +82,29 @@ export const upsertDiscoveredSession = internalMutation({
       .unique();
     
     if (existing) {
+      const updates: Record<string, any> = {};
+      if (args.lastKnownState !== undefined) updates.lastKnownState = args.lastKnownState;
+      if (args.repo !== undefined && args.repo !== "repoless") updates.repo = args.repo;
+      if (args.title !== undefined && existing.shortName === undefined) {
+        updates.shortName = args.title;
+      }
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existing._id, updates);
+      }
       return existing._id;
     }
 
     const id = await ctx.db.insert("julesSessions", {
       threadId: "",
       julesSessionId: args.julesSessionId,
-      shortName: undefined,
+      shortName: args.title,
       lastProcessedActivityTime: 0,
       lastKnownState: args.lastKnownState,
-      isActive: args.lastKnownState !== "completed" && args.lastKnownState !== "failed",
       origin: "discovered",
       acknowledged: false,
       inDashboard: false,
       prefs: { approval: "confirm", verbosity: "milestones" },
+      repo: args.repo,
     });
     return id;
   }

@@ -156,6 +156,43 @@ Jules Dispatch uses a tiered context architecture to maintain efficiency:
 
 To handle 100+ concurrent sessions without context bloat, Jules Dispatch implements an "Iceberg" model for session context:
 
+### Jules Session States (from API)
+
+| State | Meaning |
+|-------|---------|
+| `STATE_UNSPECIFIED` | State is unspecified |
+| `QUEUED` | Session is waiting to be processed |
+| `PLANNING` | Jules is creating a plan |
+| `AWAITING_PLAN_APPROVAL` | Plan ready, needs user approval |
+| `AWAITING_USER_FEEDBACK` | Jules needs user input |
+| `IN_PROGRESS` | Jules is actively working |
+| `PAUSED` | Session paused (can be resumed) |
+| `FAILED` | Session failed |
+| `COMPLETED` | Session completed successfully |
+
+**Important:** Sessions are RESUMABLE. Sending a message to a COMPLETED/FAILED session transitions it back to an active state.
+
+### Internal Tracking States
+
+```
+DISCOVERED ──► REGISTERED ──► TRACKED
+     │              │            │
+     │              │        ARCHIVED
+     └──────────────┴────────────┘
+         (all persist in DB forever)
+```
+
+| Field | Meaning |
+|-------|---------|
+| `acknowledged: false` | Session discovered from API, user hasn't acknowledged |
+| `acknowledged: true` | User knows about this session |
+| `inDashboard: true` | Being actively monitored (polled for updates) |
+| `inDashboard: false` | Not in dashboard (archived or never tracked) |
+| `origin: "agent"` | Created by bot via `create_session` |
+| `origin: "discovered"` | Found via API polling |
+| `lastKnownState` | Last known Jules state |
+| `repo` | "owner/repo" or "repoless" |
+
 ### Discovery Model
 - **On-demand only** — sessions are NOT discovered automatically in the background.
 - `query_sessions` is the sole entry point for discovery. It calls `getAllSessionsWithInfo` once, then passes the results into the Session Manager sub-agent.
