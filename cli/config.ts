@@ -173,23 +173,8 @@ export function removeEnvKeys(installPath: string, keys: string[]): void {
   }
 }
 
-export function createDefaultConfig(installPath: string): JulesDispatchConfig {
-  const now = new Date().toISOString();
-  return {
-    installPath,
-    projectSlug: "jules-dispatch",
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-export function updateConfig(config: JulesDispatchConfig, updates: Partial<JulesDispatchConfig>): JulesDispatchConfig {
-  return {
-    ...config,
-    ...updates,
-    updatedAt: new Date().toISOString(),
-  };
-}
+// createDefaultConfig and updateConfig removed as part of CLI refactor
+// Configuration is now always read from ~/.jules-dispatch.json
 
 export interface InitialConfig {
   telegramBotToken: string;

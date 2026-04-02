@@ -7,19 +7,15 @@ import { normalizeState, isActiveState } from "../types";
 
 function formatSessionsForContext(sessions: SessionInfo[]): string {
   const tracked = sessions.filter((s) => s.inDashboard);
-  const activeUntracked = sessions.filter(
-    (s) => {
-      const st = normalizeState(s.state);
-      return s.acknowledged &&!s.inDashboard && isActiveState(st);
-    }
-  );
+  const activeUntracked = sessions.filter((s) => {
+    const st = normalizeState(s.state);
+    return s.acknowledged && !s.inDashboard && isActiveState(st);
+  });
   const unregistered = sessions.filter((s) => !s.acknowledged);
-  const archived = sessions.filter(
-    (s) => {
-      const st = normalizeState(s.state);
-      return s.acknowledged && !s.inDashboard && !isActiveState(st);
-    }
-  );
+  const archived = sessions.filter((s) => {
+    const st = normalizeState(s.state);
+    return s.acknowledged && !s.inDashboard && !isActiveState(st);
+  });
 
   const lines: string[] = [];
 
@@ -151,10 +147,20 @@ export async function spawnSessionManagerAgent(
           "Only return sessions created within this time window. Default '24h'.",
         ),
       state: z
-        .array(z.enum([
-          "STATE_UNSPECIFIED", "QUEUED", "PLANNING", "AWAITING_PLAN_APPROVAL",
-          "AWAITING_USER_FEEDBACK", "IN_PROGRESS", "PAUSED", "FAILED", "COMPLETED", "all"
-        ]))
+        .array(
+          z.enum([
+            "STATE_UNSPECIFIED",
+            "QUEUED",
+            "PLANNING",
+            "AWAITING_PLAN_APPROVAL",
+            "AWAITING_USER_FEEDBACK",
+            "IN_PROGRESS",
+            "PAUSED",
+            "FAILED",
+            "COMPLETED",
+            "all",
+          ]),
+        )
         .optional()
         .describe(
           "Filter by one or more session states. Omit for no state filter.",
@@ -185,7 +191,7 @@ export async function spawnSessionManagerAgent(
 
       // 2. Apply State Filter
       if (args.state && !args.state.includes("all")) {
-        const states = args.state.map(s => s.toUpperCase());
+        const states = args.state.map((s) => s.toUpperCase());
         filtered = filtered.filter((s: SessionInfo) => {
           const normalized = normalizeState(s.state);
           return states.includes(normalized);
@@ -225,8 +231,7 @@ export async function spawnSessionManagerAgent(
   });
 
   const local_inspect_session = createTool({
-    description:
-      "Fetch full details and activity log for a specific session.",
+    description: "Fetch full details and activity log for a specific session.",
     inputSchema: z.object({
       julesSessionId: z.string().describe("The Jules session ID to inspect."),
     }),
@@ -304,7 +309,9 @@ export async function spawnSessionManagerAgent(
     return `Error: ${error.message || String(error)}`;
   } finally {
     try {
-      await sessionManagerAgent.deleteThreadAsync(ctx, { threadId: agentThreadId });
+      await sessionManagerAgent.deleteThreadAsync(ctx, {
+        threadId: agentThreadId,
+      });
     } catch {
       // Silently ignore cleanup errors
     }
