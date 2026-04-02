@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import * as p from "@clack/prompts";
 import c from "picocolors";
 import { parseDeployKey } from "../config.js";
+import { withRetry } from "./retry.js";
 
 export async function runConvexDeploy(
   deployKey: string,
@@ -50,17 +51,33 @@ export async function setupTelegramWebhook(
   const apiUrl = `https://api.telegram.org/bot${telegramToken}/setWebhook?url=${encodeURIComponent(webhookUrl)}`;
 
   try {
-    const response = await fetch(apiUrl);
-    const data = (await response.json()) as {
-      ok: boolean;
-      description?: string;
-    };
+    const data = await withRetry(
+      async () => {
+        const response = await fetch(apiUrl);
+        const result = (await response.json()) as {
+          ok: boolean;
+          description?: string;
+        };
 
-    if (!data.ok) {
-      p.log.warn(
-        c.yellow(`⚠️ Webhook setup: ${data.description || "Unknown error"}`),
-      );
-    }
+        if (!result.ok) {
+          // Telegram returns 200 OK even for errors, so check the result
+          throw new Error(result.description || "Webhook setup failed");
+        }
+
+        return result;
+      },
+      {
+        maxAttempts: 3,
+        baseDelayMs: 1000,
+        onRetry: (attempt, error) => {
+          p.log.warn(
+            c.yellow(`⚠️  Webhook attempt ${attempt} failed: ${error.message}`),
+          );
+        },
+      },
+    );
+
+    // Success - webhook was set up
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     p.log.warn(c.yellow("⚠️ Could not set Telegram webhook automatically"));

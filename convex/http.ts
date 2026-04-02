@@ -1,4 +1,5 @@
 import { httpRouter } from "convex/server";
+import type { GenericActionCtx } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal, components } from "./_generated/api";
 import { registerStaticRoutes } from "@convex-dev/static-hosting";
@@ -26,6 +27,29 @@ function corsResponse(body: unknown, status: number = 200) {
   });
 }
 
+type SettingsAuthCtx = Pick<GenericActionCtx<any>, "runQuery">;
+
+async function requireValidSettingsSession(
+  ctx: SettingsAuthCtx,
+  token: string | null | undefined,
+  missingTokenMessage = "Missing token",
+  invalidSessionMessage = "Invalid or expired session",
+): Promise<string | Response> {
+  if (!token) {
+    return corsResponse({ error: missingTokenMessage }, 400);
+  }
+
+  const telegramChatId = await ctx.runQuery(internal.users.db.validateAuthSession, {
+    token,
+  });
+
+  if (!telegramChatId) {
+    return corsResponse({ error: invalidSessionMessage }, 401);
+  }
+
+  return telegramChatId;
+}
+
 // Preflight handlers
 http.route({ path: "/settings/api/config", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
 http.route({ path: "/settings/api/save", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
@@ -42,29 +66,21 @@ http.route({
     try {
       const url = new URL(request.url);
       const token = url.searchParams.get("token");
-
-      if (!token) {
-        return corsResponse({ error: "Missing token" }, 400);
-      }
-
-      const telegramChatId = await ctx.runQuery(internal.users.db.validateAuthSession, {
-        token,
-      });
-
-      if (!telegramChatId) {
-        return corsResponse({ error: "Invalid or expired session" }, 401);
+      const auth = await requireValidSettingsSession(ctx, token);
+      if (auth instanceof Response) {
+        return auth;
       }
 
       const res = await ctx.runQuery(internal.users.db.getProviderConfig, {
-        telegramChatId,
+        telegramChatId: auth,
       });
 
       const user = await ctx.runQuery(internal.users.db.getUserNotificationPreference, {
-        telegramChatId,
+        telegramChatId: auth,
       });
 
       return corsResponse({
-        telegramChatId,
+        telegramChatId: auth,
         config: res.config,
         julesApiKey: res.julesApiKey,
         exaApiKey: res.exaApiKey,
@@ -85,17 +101,13 @@ http.route({
     try {
       const body = (await request.json()) as SaveApiKeyBody;
       const { token, apiKey } = body;
-
-      const telegramChatId = await ctx.runQuery(internal.users.db.validateAuthSession, {
-        token,
-      });
-
-      if (!telegramChatId) {
-        return corsResponse({ error: "Invalid session" }, 401);
+      const auth = await requireValidSettingsSession(ctx, token, "Missing token", "Invalid session");
+      if (auth instanceof Response) {
+        return auth;
       }
 
       await ctx.runMutation(internal.users.db.updateJulesApiKey, {
-        telegramChatId,
+        telegramChatId: auth,
         apiKey,
       });
 
@@ -114,17 +126,13 @@ http.route({
     try {
       const body = (await request.json()) as SaveApiKeyBody;
       const { token, apiKey } = body;
-
-      const telegramChatId = await ctx.runQuery(internal.users.db.validateAuthSession, {
-        token,
-      });
-
-      if (!telegramChatId) {
-        return corsResponse({ error: "Invalid session" }, 401);
+      const auth = await requireValidSettingsSession(ctx, token, "Missing token", "Invalid session");
+      if (auth instanceof Response) {
+        return auth;
       }
 
       await ctx.runMutation(internal.users.db.updateExaApiKey, {
-        telegramChatId,
+        telegramChatId: auth,
         apiKey,
       });
 
@@ -143,21 +151,13 @@ http.route({
     try {
       const body = (await request.json()) as SaveProviderConfigBody;
       const { token, endpoint, model, apiKey, sdkType } = body;
-
-      if (!token) {
-        return corsResponse({ error: "Missing token" }, 400);
-      }
-
-      const telegramChatId = await ctx.runQuery(internal.users.db.validateAuthSession, {
-        token,
-      });
-
-      if (!telegramChatId) {
-        return corsResponse({ error: "Invalid or expired session" }, 401);
+      const auth = await requireValidSettingsSession(ctx, token);
+      if (auth instanceof Response) {
+        return auth;
       }
 
       await ctx.runMutation(internal.users.db.updateProviderConfig, {
-        telegramChatId,
+        telegramChatId: auth,
         endpoint: endpoint || "",
         model: model || "",
         apiKey: apiKey || "",
@@ -166,7 +166,7 @@ http.route({
 
       try {
         await ctx.runAction(internal.api.telegram.sendChatMessage, {
-          chatId: telegramChatId,
+          chatId: auth,
           message: `✅ <b>Provider Configured!</b>\nModel: <code>${model || "unknown"}</code>\nSDK: <code>${sdkType || "openai-compatible"}</code>`,
         });
       } catch (err) {
@@ -189,17 +189,9 @@ http.route({
     try {
       const body = (await request.json()) as TestConnectionBody;
       const { token, endpoint, model, apiKey, sdkType } = body;
-
-      if (!token) {
-        return corsResponse({ error: "Missing token" }, 400);
-      }
-
-      const telegramChatId = await ctx.runQuery(internal.users.db.validateAuthSession, {
-        token,
-      });
-
-      if (!telegramChatId) {
-        return corsResponse({ error: "Invalid or expired session" }, 401);
+      const auth = await requireValidSettingsSession(ctx, token);
+      if (auth instanceof Response) {
+        return auth;
       }
 
       const result = await ctx.runAction(internal.users.actions.testConnection, {
@@ -225,21 +217,13 @@ http.route({
     try {
       const body = await request.json() as { token: string; enabled: boolean };
       const { token, enabled } = body;
-
-      if (!token) {
-        return corsResponse({ error: "Missing token" }, 400);
-      }
-
-      const telegramChatId = await ctx.runQuery(internal.users.db.validateAuthSession, {
-        token,
-      });
-
-      if (!telegramChatId) {
-        return corsResponse({ error: "Invalid or expired session" }, 401);
+      const auth = await requireValidSettingsSession(ctx, token);
+      if (auth instanceof Response) {
+        return auth;
       }
 
       await ctx.runMutation(internal.users.db.updateNotificationPreference, {
-        telegramChatId,
+        telegramChatId: auth,
         enabled,
       });
 

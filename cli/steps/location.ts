@@ -4,7 +4,6 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { WizardError } from "../errors.js";
-import { isGitAvailable, cloneWithGit } from "../utils/git.js";
 import { downloadAndExtract } from "../utils/archive.js";
 import { printStep } from "../ui.js";
 
@@ -27,18 +26,7 @@ function getDirectoryState(installPath: string): DirectoryState {
   return "unknown";
 }
 
-async function cloneScaffold(installPath: string): Promise<void> {
-  if (isGitAvailable()) {
-    try {
-      await cloneWithGit(installPath);
-      return;
-    } catch {
-      // Fall through to download
-    }
-  }
 
-  await downloadAndExtract(installPath);
-}
 
 export async function runStepLocation(existingPath?: string): Promise<string> {
   const defaultPath = existingPath || DEFAULT_INSTALL_PATH;
@@ -138,16 +126,16 @@ export async function runStepLocation(existingPath?: string): Promise<string> {
     }
   }
 
-  // Clone scaffold
+  // Download scaffold
   printStep("Fetching code repository...");
   const s = p.spinner();
-  s.start("Cloning repository...");
+  s.start("Downloading repository...");
 
   try {
-    await cloneScaffold(resolvedPath);
-    s.stop("Repository cloned!");
+    await downloadAndExtract(resolvedPath);
+    s.stop("Repository downloaded!");
   } catch (error) {
-    s.stop("Failed to clone repository");
+    s.stop("Failed to download repository");
     throw error;
   }
 

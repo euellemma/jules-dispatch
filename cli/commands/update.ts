@@ -5,8 +5,6 @@ import { spawn } from "child_process";
 import { printBanner, c, link, info } from "../ui.js";
 import { handleError } from "../errors.js";
 import { readHomeConfig, writeHomeConfig, writeEnvLocal } from "../config.js";
-import { isGitRepo, isGitAvailable } from "../utils/git.js";
-import { pullLatest } from "../utils/git.js";
 import { downloadAndExtract } from "../utils/archive.js";
 import {
   runConvexDeploy,
@@ -66,19 +64,6 @@ async function installWebDependencies(installPath: string): Promise<void> {
   });
 }
 
-async function pullLatestWithFallback(installPath: string): Promise<void> {
-  if (isGitRepo(installPath) && isGitAvailable()) {
-    try {
-      await pullLatest(installPath);
-      return;
-    } catch {
-      // Fall through to download
-    }
-  }
-
-  await downloadAndExtract(installPath);
-}
-
 export async function runUpdateCommand(): Promise<void> {
   const config = readHomeConfig();
   if (!config) {
@@ -96,10 +81,10 @@ export async function runUpdateCommand(): Promise<void> {
   printBanner();
 
   const s = p.spinner();
-  s.start("Pulling latest changes...");
+  s.start("Downloading latest code...");
 
   try {
-    await pullLatestWithFallback(installPath);
+    await downloadAndExtract(installPath);
     s.stop("Code updated!");
   } catch (error) {
     s.stop("Update failed");

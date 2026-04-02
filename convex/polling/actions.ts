@@ -3,8 +3,8 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { julesAgent, resolveLanguageModel } from "../agent/instance";
 import { getJulesClient } from "../tools/nodeActions";
-import type { ProcessedOutput, JulesSessionState } from "../types";
-import { isActiveState } from "../types";
+import type { ProcessedOutput } from "../types";
+import { isActiveState, normalizeState } from "../types";
 import type { GenericActionCtx } from "convex/server";
 
 // Type for action context passed to helper functions
@@ -87,6 +87,7 @@ export const pollJulesActivities = internalAction({
         }
 
         const currentState = julesSession.state || "unknown";
+        const normalizedCurrentState = normalizeState(currentState);
         const outputs = julesSession.outputs || [];
         const lastKnownState = sessionDoc.lastKnownState;
 
@@ -151,7 +152,9 @@ export const pollJulesActivities = internalAction({
           
           // Check for resume (COMPLETED/FAILED -> active state)
           const lastUpper = (lastKnownState || "").toUpperCase();
-          const currentUpper = (currentState || "").toUpperCase();
+          const currentUpper = normalizedCurrentState === "UNKNOWN"
+            ? (currentState || "").toUpperCase()
+            : normalizedCurrentState;
           const wasTerminal = lastUpper === "COMPLETED" || lastUpper === "FAILED";
           const isNowActive = isActiveState(currentUpper);
           const isResumed = wasTerminal && isNowActive;
@@ -234,7 +237,7 @@ export const pollJulesActivities = internalAction({
             lastProcessedActivityTime: maxTime
           });
 
-          if (currentState === 'completed') {
+          if (currentUpper === "COMPLETED") {
             const processed = await processOutputs(ctx, sessionDoc.julesSessionId, outputs, false);
             
             if (processed && processed.length > 0) {

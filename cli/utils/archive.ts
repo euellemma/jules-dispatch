@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import * as zlib from "zlib";
 import { WizardError } from "../errors.js";
+import { withRetry } from "./retry.js";
 
 const ARCHIVE_URL =
   "https://github.com/euellemma/jules-dispatch/archive/refs/heads/main.tar.gz";
@@ -10,22 +11,45 @@ export async function downloadAndExtract(
   installPath: string,
   onProgress?: (fileCount: number) => void,
 ): Promise<void> {
-  const response = await fetch(ARCHIVE_URL);
-  if (!response.ok) {
+  const buf = await withRetry(
+    async () => {
+      const response = await fetch(ARCHIVE_URL);
+      if (!response.ok) {
+        // Throw Response object so retry logic can check status code
+        throw response;
+      }
+      const arrayBuf = await response.arrayBuffer();
+      return Buffer.from(arrayBuf);
+    },
+    {
+      maxAttempts: 3,
+      baseDelayMs: 1000,
+      onRetry: (attempt, error) => {
+        console.warn(
+          `⚠️  Download attempt ${attempt} failed. Retrying... (${error.message})`
+        );
+      },
+    }
+  ).catch((error) => {
+    if (error instanceof Response) {
+      throw new WizardError(
+        `Failed to download: ${error.status} ${error.statusText}`,
+        "location",
+        true,
+        "Check your internet connection and try again"
+      );
+    }
     throw new WizardError(
-      `Failed to download: ${response.status} ${response.statusText}`,
+      `Failed to download: ${error instanceof Error ? error.message : String(error)}`,
       "location",
       true,
-      "Check your internet connection and try again",
+      "Check your internet connection and try again"
     );
-  }
-
-  const arrayBuf = await response.arrayBuffer();
-  const buf = Buffer.from(arrayBuf);
+  });
 
   fs.mkdirSync(installPath, { recursive: true });
   const fileCount = extractTarGz(buf, installPath);
-  
+
   if (onProgress) {
     onProgress(fileCount);
   }

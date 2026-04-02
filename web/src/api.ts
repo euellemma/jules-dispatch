@@ -1,9 +1,13 @@
 import type { SettingsData, ProviderConfig } from './types';
 
-const API_BASE = (import.meta as { env: Record<string, string> }).env.VITE_CONVEX_SITE_URL || 'https://aware-pheasant-429.convex.site';
+const API_BASE = ((import.meta as { env: Record<string, string | undefined> }).env.VITE_CONVEX_SITE_URL || '').replace(/\/$/, '');
+
+function settingsUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
 
 export async function fetchConfig(token: string): Promise<SettingsData | null> {
-  const resp = await fetch(`${API_BASE}/settings/api/config?token=${token}`);
+  const resp = await fetch(settingsUrl(`/settings/api/config?token=${token}`));
   if (!resp.ok) {
     if (resp.status === 401) throw new Error('Session expired. Please get a new link from Telegram.');
     throw new Error('Failed to load settings');
@@ -12,7 +16,7 @@ export async function fetchConfig(token: string): Promise<SettingsData | null> {
 }
 
 export async function saveConfig(token: string, config: ProviderConfig): Promise<void> {
-  const resp = await fetch(`${API_BASE}/settings/api/save`, {
+  const resp = await fetch(settingsUrl('/settings/api/save'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, ...config }),
@@ -24,7 +28,7 @@ export async function saveConfig(token: string, config: ProviderConfig): Promise
 }
 
 export async function saveJulesKey(token: string, apiKey: string): Promise<void> {
-  const resp = await fetch(`${API_BASE}/settings/api/save-jules`, {
+  const resp = await fetch(settingsUrl('/settings/api/save-jules'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, apiKey }),
@@ -36,7 +40,7 @@ export async function saveJulesKey(token: string, apiKey: string): Promise<void>
 }
 
 export async function saveExaKey(token: string, apiKey: string): Promise<void> {
-  const resp = await fetch(`${API_BASE}/settings/api/save-exa`, {
+  const resp = await fetch(settingsUrl('/settings/api/save-exa'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, apiKey }),
@@ -48,7 +52,7 @@ export async function saveExaKey(token: string, apiKey: string): Promise<void> {
 }
 
 export async function testConnection(token: string, config: ProviderConfig): Promise<{ success: boolean; error?: string }> {
-  const resp = await fetch(`${API_BASE}/settings/api/test`, {
+  const resp = await fetch(settingsUrl('/settings/api/test'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, ...config }),
@@ -61,7 +65,7 @@ export async function testConnection(token: string, config: ProviderConfig): Pro
 }
 
 export async function saveNotificationPreference(token: string, enabled: boolean): Promise<void> {
-  const resp = await fetch(`${API_BASE}/settings/api/notifications`, {
+  const resp = await fetch(settingsUrl('/settings/api/notifications'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, enabled }),
