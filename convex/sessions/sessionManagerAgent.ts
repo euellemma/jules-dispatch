@@ -113,9 +113,10 @@ Use this when the user asks to "find", "list", or "show" sessions.
 - CONFIGURE: Update approval/verbosity preferences
 
 ## Guidelines
-- Discovery is on-demand — call list_sessions when the user asks about sessions.
-- Keep responses concise.
-- If you find sessions via list_sessions, tell the user you found them before taking action.
+- Report tool calls (success/failure).
+- Return stats by state unless the prompt explicitly asks for details or search.
+- Use list_sessions when the prompt asks to find/list/search sessions.
+- Use inspect_session when the prompt asks for details/logs of a specific session.
 - Use REGISTER to handle unregistered sessions.
 - Use TRACK to move sessions to the user's dashboard.
 - Use ARCHIVE to untrack sessions from the dashboard.

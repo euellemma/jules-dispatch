@@ -157,21 +157,49 @@ export interface AuthSessionDoc {
 
 /**
  * Jules API Session response
+ * 
+ * IMPORTANT: Based on actual Jules API responses from list endpoint:
+ * - source field is NOT present in list responses
+ * - Repo info comes via sourceContext.source (e.g., "sources/github/owner/repo")
+ * - source.githubRepo only populated in single session fetch (session.info())
+ * - outputs are discriminated by presence of changeSet/pullRequest, NOT by type field
  */
 export interface JulesApiSession {
   id: string;
   title?: string;
   state?: JulesSessionState | string;
-  source?: {
-    github?: string;
-    githubRepo?: {
-      owner: string;
-      repo: string;
+  sourceContext?: {
+    source?: string;
+    githubRepoContext?: {
+      startingBranch?: string;
     };
+    environmentVariablesEnabled?: boolean;
     [key: string]: unknown;
   };
+  outputs?: JulesSessionOutput[];
   createTime?: string;
   updateTime?: string;
+}
+
+/**
+ * Session output from Jules API
+ * Discriminated by presence of changeSet or pullRequest, NOT by type field
+ */
+export interface JulesSessionOutput {
+  changeSet?: {
+    source?: string;
+    gitPatch?: {
+      unidiffPatch: string;
+      baseCommitId?: string;
+    };
+  };
+  pullRequest?: {
+    url: string;
+    title: string;
+    description?: string;
+    baseRef: string;
+    headRef: string;
+  };
 }
 
 /**
@@ -206,9 +234,13 @@ export interface GeneratedPlan {
 
 /**
  * Artifact from activity (e.g., changeSet, pullRequest)
+ * 
+ * NOTE: Raw API outputs don't have a `type` discriminator.
+ * They are discriminated by the presence of `changeSet` or `pullRequest` fields.
+ * The type field is added by SDK mapping.
  */
 export interface ActivityArtifact {
-  type: "changeSet" | "pullRequest" | string;
+  type?: "changeSet" | "pullRequest" | string;
   changeSet?: {
     gitPatch?: {
       unidiffPatch: string;

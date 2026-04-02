@@ -10,7 +10,7 @@ export const message_jules = createTool({
   description:
     "Send a message (prompt) to the agent in the context of an existing Jules session.",
   inputSchema: z.object({
-    sessionId: z
+    julesSessionId: z
       .string()
       .describe("The ID of the Jules session to send the message to."),
     prompt: z
@@ -20,10 +20,10 @@ export const message_jules = createTool({
   execute: async (ctx, args): Promise<string> => {
     const res = await ctx.runAction(
       internal.sessions.actions.sendMessage,
-      args,
+      { sessionId: args.julesSessionId, prompt: args.prompt },
     );
     if (res.success) {
-      return `Message sent successfully to session ${args.sessionId}`;
+      return `Message sent successfully to session ${args.julesSessionId}`;
     } else {
       return `Error sending message: ${res.error}`;
     }
@@ -34,7 +34,7 @@ export const approve_plan = createTool({
   description:
     "Approves the currently pending plan in a Jules session, allowing the agent to proceed with execution.",
   inputSchema: z.object({
-    sessionId: z
+    julesSessionId: z
       .string()
       .describe(
         "The ID of the Jules session where the plan should be approved.",
@@ -43,10 +43,10 @@ export const approve_plan = createTool({
   execute: async (ctx, args): Promise<string> => {
     const res = await ctx.runAction(
       internal.sessions.actions.approvePlan,
-      args,
+      { sessionId: args.julesSessionId },
     );
     if (res.success) {
-      return `Plan approved successfully for session ${args.sessionId}`;
+      return `Plan approved successfully for session ${args.julesSessionId}`;
     } else {
       return `Error approving plan: ${res.error}`;
     }
@@ -128,7 +128,13 @@ export const create_session = createTool({
       .describe(
         "Session interaction preferences toward the user. approval: when to ask permission (auto=act first, confirm=ask before irreversible, strict=ask before most). verbosity: how much to report (silent=outcomes only, milestones=key progress, full=ongoing updates).",
       ),
-  }),
+  }).refine(
+    (data) => !(data.githubRepo && !data.baseBranch),
+    {
+      message: "baseBranch is required when githubRepo is provided",
+      path: ["baseBranch"],
+    }
+  ),
   execute: async (ctx, args): Promise<string> => {
     if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
 
@@ -312,7 +318,7 @@ export const manage_sessions = createTool({
         "STATE_UNSPECIFIED", "QUEUED", "PLANNING", "AWAITING_PLAN_APPROVAL",
         "AWAITING_USER_FEEDBACK", "IN_PROGRESS", "PAUSED", "FAILED", "COMPLETED", "all"
       ])).optional()
-        .describe("Filter target by Jules session state(s). Can specify multiple states as array. Use 'all' for no state filter."),
+        .describe("CLIENT-SIDE filter by Jules session state(s). Can specify multiple states as array. Use 'all' for no state filter. Note: Jules API does not support server-side state filtering; filtering is performed locally after fetching sessions."),
       since: z.enum(["1h", "6h", "24h", "7d", "30d", "all"]).optional()
         .describe("Filter target by creation time. Only applies when 'target' is used."),
     }).refine(s => s.ids || s.target, "Must provide either 'ids' or 'target'."),
@@ -403,8 +409,8 @@ export const fetch_session_files = createTool({
     "- read: Return content for your internal context only without sending to the user.",
   inputSchema: z.object({
     julesSessionId: z.string().describe("The ID of the Jules session."),
-    filePath: z.string().optional().describe(
-      "Optional. The exact path of the file. If not provided, fetches all files updated in the session.",
+    filePath: z.union([z.string(), z.array(z.string())]).describe(
+      "Required. The exact path of the file(s) to fetch. Can be a single file path string or an array of file paths.",
     ),
     mode: z.enum(["show", "send", "read"]).optional().default("send").describe(
       "How to handle the file content.",
@@ -433,18 +439,24 @@ export const fetch_session_files = createTool({
     }
 
     const filesToProcess: { path: string; content: string }[] = [];
-    if (args.filePath) {
-      if (!latestFiles.has(args.filePath)) {
-        return `Error: File '${args.filePath}' not found in session '${args.julesSessionId}'.`;
+    const pathsToFetch = Array.isArray(args.filePath)
+      ? args.filePath
+      : [args.filePath];
+
+    const notFound: string[] = [];
+    for (const path of pathsToFetch) {
+      if (!latestFiles.has(path)) {
+        notFound.push(path);
+      } else {
+        filesToProcess.push({
+          path,
+          content: latestFiles.get(path)!,
+        });
       }
-      filesToProcess.push({
-        path: args.filePath,
-        content: latestFiles.get(args.filePath)!,
-      });
-    } else {
-      for (const [path, content] of latestFiles.entries()) {
-        filesToProcess.push({ path, content });
-      }
+    }
+
+    if (notFound.length > 0) {
+      return `Error: File(s) not found in session '${args.julesSessionId}': ${notFound.join(", ")}`;
     }
 
     if (args.mode === "send") {

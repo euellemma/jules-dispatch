@@ -79,6 +79,33 @@ export const getFileTextContent = internalQuery({
   }
 });
 
+export const getFileByAssignedName = internalQuery({
+  args: { 
+    threadId: v.string(),
+    assignedName: v.string() 
+  },
+  handler: async (ctx, args) => {
+    const files = await ctx.db
+      .query("uploadedFiles")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .filter((q) => q.eq(q.field("assignedName"), args.assignedName))
+      .collect();
+    
+    // Return the first match (agent is responsible for unique naming)
+    const file = files[0];
+    if (!file) return null;
+    
+    const blobUrl = await ctx.storage.getUrl(file.storageId);
+    if (!blobUrl) throw new Error("Could not generate URL for storage ID");
+    
+    return { 
+      id: file._id,
+      url: blobUrl, 
+      name: file.assignedName || file.originalName 
+    };
+  }
+});
+
 export const deleteFilesForThread = internalMutation({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {

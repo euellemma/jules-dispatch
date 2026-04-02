@@ -12,7 +12,7 @@ async function fetchAllJulesSessions(ctx: ActionCtx, threadId?: string): Promise
   try {
     const jules = await getJulesClient(ctx, threadId);
     const sessions = await jules.sessions({}).all();
-    return sessions as JulesApiSession[];
+    return sessions as unknown as JulesApiSession[];
   } catch (error) {
     console.error("Error fetching sessions:", error);
     return [];
@@ -63,11 +63,11 @@ function formatActivityLog(activities: Array<{ type?: string; createTime?: strin
 
 function extractRepo(js: JulesApiSession): string {
   try {
-    if (js.source?.github && typeof js.source.github === "string") {
-      return js.source.github;
-    }
-    if (js.source?.githubRepo) {
-      return `${js.source.githubRepo.owner}/${js.source.githubRepo.repo}`;
+    if (js.sourceContext?.source) {
+      const match = js.sourceContext.source.match(/^sources\/github\/([^/]+)\/([^/]+)$/);
+      if (match) {
+        return `${match[1]}/${match[2]}`;
+      }
     }
   } catch {
     // ignore

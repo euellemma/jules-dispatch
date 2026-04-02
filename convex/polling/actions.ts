@@ -3,7 +3,7 @@ import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { julesAgent, resolveLanguageModel } from "../agent/instance";
 import { getJulesClient } from "../tools/nodeActions";
-import type { ProcessedOutput } from "../types";
+import type { ProcessedOutput, JulesApiSession } from "../types";
 import { isActiveState, normalizeState } from "../types";
 import type { GenericActionCtx } from "convex/server";
 
@@ -16,36 +16,6 @@ interface WakerEvent {
   shortName: string;
   threadId: string;
   details: string;
-}
-
-interface JulesApiSession {
-  id: string;
-  title?: string;
-  state?: string;
-  outputs?: Array<{
-    type?: string;
-    changeSet?: {
-      source?: string;
-      gitPatch?: {
-        unidiffPatch: string;
-        baseCommitId?: string;
-      };
-    };
-    pullRequest?: {
-      url: string;
-      title: string;
-      description?: string;
-      baseRef?: string;
-      headRef?: string;
-    };
-  }>;
-  source?: {
-    githubRepo?: {
-      owner: string;
-      repo: string;
-    };
-  };
-  createTime?: string;
 }
 
 export const pollJulesActivities = internalAction({
@@ -238,7 +208,20 @@ export const pollJulesActivities = internalAction({
           });
 
           if (currentUpper === "COMPLETED") {
-            const processed = await processOutputs(ctx, sessionDoc.julesSessionId, outputs, false);
+            // IMPORTANT: session.outputs is empty in list responses.
+            // Must fetch full session details to get actual outputs.
+            let finalOutputs = outputs;
+            try {
+              const sessionClient = await jules.session(sessionDoc.julesSessionId);
+              const fullSession = await sessionClient.info();
+              // Outputs may be in outcome.outputs or directly in outputs
+              finalOutputs = fullSession.outcome?.outputs || fullSession.outputs || [];
+            } catch (fetchError) {
+              console.error(`[pollJulesActivities] Failed to fetch session details for outputs: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);
+              // Continue with empty outputs from list response
+            }
+            
+            const processed = await processOutputs(ctx, sessionDoc.julesSessionId, finalOutputs, false);
             
             if (processed && processed.length > 0) {
               let jitMessage = `[SYSTEM: Session ${sessionDoc.shortName} Completed]\nFinal results:\n`;
@@ -309,8 +292,6 @@ async function sendWakerEvents(ctx: ActionCtx, events: WakerEvent[]) {
           break;
       }
     }
-    
-    message += `Use query_sessions tool to manage these sessions.`;
     
     try {
       const { messageId } = await julesAgent.saveMessage(ctx, {
@@ -389,7 +370,7 @@ async function processOutputs(
   const processedOutputs: ProcessedOutput[] = [];
 
   for (const output of outputs) {
-    if (output.type === 'changeSet' && output.changeSet) {
+    if (output.changeSet) {
       const patch = output.changeSet.gitPatch?.unidiffPatch;
       const extractedFiles = patch ? extractFilesFromDiff(patch) : undefined;
       processedOutputs.push({
@@ -401,7 +382,7 @@ async function processOutputs(
         isIncremental,
         activityId,
       });
-    } else if (output.type === 'pullRequest' && output.pullRequest) {
+    } else if (output.pullRequest) {
       processedOutputs.push({
         type: 'pullRequest',
         url: output.pullRequest.url,
@@ -414,7 +395,7 @@ async function processOutputs(
       });
     } else {
       processedOutputs.push({
-        type: output.type || 'unknown',
+        type: 'unknown',
         isIncremental,
         activityId,
       });

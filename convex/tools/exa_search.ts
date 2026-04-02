@@ -147,63 +147,116 @@ async function runResearchAgent(ctx: any, query: string, mode: "quick" | "deep",
  * Can perform web research AND analyze files dynamically injected into its context.
  */
 export const research = createTool({
-  description: "Delegate tasks to the Research Agent. Use 'quick' for fast answers, 'deep' for thorough multi-step research. You can optionally pass IDs of user-uploaded files or paths from a Jules session to have the agent analyze those files.",
+  description: "Delegate tasks to the Research Agent. Use 'quick' for fast answers, 'deep' for thorough multi-step research. You can optionally inject files from uploaded files (by assignedName) or from a Jules session (by file paths).",
   inputSchema: z.object({
     query: z.string().describe("The research query, question, or analysis instruction."),
     mode: z.enum(["quick", "deep"]).optional().default("quick").describe("Quick for fast answers, deep for thorough research."),
-    injectUploadedFileIds: z.array(z.string()).optional().describe("Array of uploaded file IDs to inject into the agent's context (get these from your Inbox/Registered list)."),
-    injectSessionFiles: z.array(z.object({
-      julesSessionId: z.string(),
-      path: z.string()
-    })).optional().describe("Array of files from a Jules session to inject. Provide the sessionId and the exact file path."),
+    files: z.array(
+      z.discriminatedUnion("type", [
+        // Session files: single session, one or more file paths
+        z.object({
+          type: z.literal("session"),
+          julesSessionId: z.string().describe("The Jules session ID."),
+          filePaths: z.union([z.string(), z.array(z.string())]).describe("Single file path or array of file paths from this session."),
+        }),
+        // Uploaded files: by assignedName
+        z.object({
+          type: z.literal("uploaded"),
+          names: z.array(z.string()).describe("Array of file assignedNames from your Registered Files list."),
+        }),
+      ])
+    ).optional().describe("Files to inject into research context. Can mix session files and uploaded files."),
   }),
   execute: async (ctx, args) => {
     if (!ctx.threadId) throw new Error("Tool must be called within a thread context.");
     
-    let injectedContext = "";
+    const foundFiles: { name: string; content: string }[] = [];
+    const missingFiles: string[] = [];
 
-    // 1. Fetch Uploaded Files
-    if (args.injectUploadedFileIds && args.injectUploadedFileIds.length > 0) {
-      for (const fileId of args.injectUploadedFileIds) {
-        try {
-          const { url, name } = await ctx.runQuery((internal as any).files.db.getFileTextContent, { fileId });
-          const response = await fetch(url);
-          if (!response.ok) throw new Error(`Fetch failed: ${response.statusText}`);
-          const text = await response.text();
-          injectedContext += `--- FILE: ${name} ---\n${text}\n\n`;
-        } catch (err: any) {
-          injectedContext += `--- FILE: ${fileId} ---\n[Error reading file: ${err.message}]\n\n`;
-        }
-      }
-    }
+    // Pre-validate and fetch all files
+    if (args.files && args.files.length > 0) {
+      for (const fileSpec of args.files) {
+        if (fileSpec.type === "uploaded") {
+          // Fetch uploaded files by assignedName
+          for (const name of fileSpec.names) {
+            try {
+              const fileInfo = await ctx.runQuery((internal as any).files.db.getFileByAssignedName, { 
+                threadId: ctx.threadId, 
+                assignedName: name 
+              });
+              
+              if (!fileInfo) {
+                missingFiles.push(name);
+                continue;
+              }
 
-    // 2. Fetch Session Files
-    if (args.injectSessionFiles && args.injectSessionFiles.length > 0) {
-      for (const sf of args.injectSessionFiles) {
-        try {
-          const outputs = await ctx.runQuery(internal.sessions.db.getSessionOutputs, { julesSessionId: sf.julesSessionId });
-          let fileContent: string | undefined;
-          for (let i = outputs.length - 1; i >= 0; i--) {
-            const out = outputs[i];
+              const response = await fetch(fileInfo.url);
+              if (!response.ok) {
+                missingFiles.push(`${name} (fetch failed: ${response.statusText})`);
+                continue;
+              }
+
+              const content = await response.text();
+              foundFiles.push({ name: fileInfo.name, content });
+            } catch (err: any) {
+              missingFiles.push(`${name} (error: ${err.message})`);
+            }
+          }
+        } else if (fileSpec.type === "session") {
+          // Fetch session files
+          const paths = Array.isArray(fileSpec.filePaths) 
+            ? fileSpec.filePaths 
+            : [fileSpec.filePaths];
+
+          const outputs = await ctx.runQuery(internal.sessions.db.getSessionOutputs, { 
+            julesSessionId: fileSpec.julesSessionId 
+          });
+
+          // Build map of latest files from session outputs
+          const sessionFiles = new Map<string, string>();
+          for (const out of outputs) {
             if (out && out.type === 'changeSet' && out.extractedFiles) {
-              const file = (out.extractedFiles as any[]).find((f: any) => f.path === sf.path);
-              if (file) {
-                fileContent = file.content;
-                break;
+              for (const file of out.extractedFiles as any[]) {
+                sessionFiles.set(file.path, file.content);
               }
             }
           }
-          if (fileContent) {
-            injectedContext += `--- SESSION FILE: ${sf.path} (Session: ${sf.julesSessionId}) ---\n${fileContent}\n\n`;
-          } else {
-            injectedContext += `--- SESSION FILE: ${sf.path} ---\n[Error: File not found in session]\n\n`;
+
+          for (const path of paths) {
+            const content = sessionFiles.get(path);
+            if (content) {
+              foundFiles.push({ name: path, content });
+            } else {
+              missingFiles.push(path);
+            }
           }
-        } catch (err: any) {
-          injectedContext += `--- SESSION FILE: ${sf.path} ---\n[Error reading session file: ${err.message}]\n\n`;
         }
       }
     }
 
-    return runResearchAgent(ctx, args.query, args.mode, await resolveLanguageModel(ctx, ctx.threadId), injectedContext.trim() || undefined);
+    // Build injected context from found files
+    let injectedContext = "";
+    for (const file of foundFiles) {
+      injectedContext += `--- FILE: ${file.name} ---\n${file.content}\n\n`;
+    }
+
+    // Run research
+    const researchResult = await runResearchAgent(
+      ctx, 
+      args.query, 
+      args.mode, 
+      await resolveLanguageModel(ctx, ctx.threadId), 
+      injectedContext.trim() || undefined
+    );
+
+    // Build response with warning if files are missing
+    let response = researchResult;
+    
+    if (missingFiles.length > 0) {
+      const warning = `\n\n⚠️ WARNING: The following files were not found and were skipped:\n${missingFiles.map(f => `- ${f}`).join("\n")}\n\nResearch completed with ${foundFiles.length} available file(s).`;
+      response = warning + "\n\n" + response;
+    }
+
+    return response;
   },
 });

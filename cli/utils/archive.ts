@@ -7,48 +7,91 @@ import { withRetry } from "./retry.js";
 const ARCHIVE_URL =
   "https://github.com/euellemma/jules-dispatch/archive/refs/heads/main.tar.gz";
 
+const LOCAL_DEV_SOURCE = process.env.JULES_LOCAL_DEV_SOURCE;
+
+async function copyFromLocal(
+  sourcePath: string,
+  destPath: string,
+): Promise<number> {
+  if (!fs.existsSync(sourcePath)) {
+    throw new WizardError(
+      `Local source does not exist: ${sourcePath}`,
+      "location",
+      true,
+      "Check JULES_LOCAL_DEV_SOURCE path",
+    );
+  }
+
+  fs.mkdirSync(destPath, { recursive: true });
+
+  const SKIP_NAMES = [".env.local", ".git"];
+  const SKIP_DIRS = ["node_modules", "dist"];
+
+  function shouldSkip(name: string, isDir: boolean): boolean {
+    if (SKIP_NAMES.includes(name)) return true;
+    if (isDir && SKIP_DIRS.includes(name)) return true;
+    return false;
+  }
+
+  fs.cpSync(sourcePath, destPath, {
+    recursive: true,
+    filter: (src) => {
+      const name = path.basename(src);
+      const isDir = fs.statSync(src).isDirectory();
+      return !shouldSkip(name, isDir);
+    },
+  });
+
+  return 0;
+}
+
 export async function downloadAndExtract(
   installPath: string,
   onProgress?: (fileCount: number) => void,
 ): Promise<void> {
-  const buf = await withRetry(
-    async () => {
-      const response = await fetch(ARCHIVE_URL);
-      if (!response.ok) {
-        // Throw Response object so retry logic can check status code
-        throw response;
-      }
-      const arrayBuf = await response.arrayBuffer();
-      return Buffer.from(arrayBuf);
-    },
-    {
-      maxAttempts: 3,
-      baseDelayMs: 1000,
-      onRetry: (attempt, error) => {
-        console.warn(
-          `⚠️  Download attempt ${attempt} failed. Retrying... (${error.message})`
-        );
+  let fileCount: number;
+
+  if (LOCAL_DEV_SOURCE) {
+    fileCount = await copyFromLocal(LOCAL_DEV_SOURCE, installPath);
+  } else {
+    const buf = await withRetry(
+      async () => {
+        const response = await fetch(ARCHIVE_URL);
+        if (!response.ok) {
+          throw response;
+        }
+        const arrayBuf = await response.arrayBuffer();
+        return Buffer.from(arrayBuf);
       },
-    }
-  ).catch((error) => {
-    if (error instanceof Response) {
+      {
+        maxAttempts: 3,
+        baseDelayMs: 1000,
+        onRetry: (attempt, error) => {
+          console.warn(
+            `⚠️  Download attempt ${attempt} failed. Retrying... (${error.message})`
+          );
+        },
+      }
+    ).catch((error) => {
+      if (error instanceof Response) {
+        throw new WizardError(
+          `Failed to download: ${error.status} ${error.statusText}`,
+          "location",
+          true,
+          "Check your internet connection and try again"
+        );
+      }
       throw new WizardError(
-        `Failed to download: ${error.status} ${error.statusText}`,
+        `Failed to download: ${error instanceof Error ? error.message : String(error)}`,
         "location",
         true,
         "Check your internet connection and try again"
       );
-    }
-    throw new WizardError(
-      `Failed to download: ${error instanceof Error ? error.message : String(error)}`,
-      "location",
-      true,
-      "Check your internet connection and try again"
-    );
-  });
+    });
 
-  fs.mkdirSync(installPath, { recursive: true });
-  const fileCount = extractTarGz(buf, installPath);
+    fs.mkdirSync(installPath, { recursive: true });
+    fileCount = extractTarGz(buf, installPath);
+  }
 
   if (onProgress) {
     onProgress(fileCount);
