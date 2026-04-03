@@ -198,7 +198,7 @@ export const saveSessionOutputRecord = internalMutation({
   },
 });
 
-export const getSessionOutputs = internalQuery({
+export const getSessionOutputsRaw = internalQuery({
   args: { julesSessionId: v.string() },
   handler: async (ctx, args) => {
     const outputs = await ctx.db
@@ -206,40 +206,15 @@ export const getSessionOutputs = internalQuery({
       .withIndex("by_julesSessionId", (q) => q.eq("julesSessionId", args.julesSessionId))
       .collect();
 
-    return Promise.all(
-      outputs.map(async (o) => {
-        let patchContent: string | null = null;
-        if (o.patchStorageId) {
-          const url = await ctx.storage.getUrl(o.patchStorageId);
-          if (url) {
-            const response = await fetch(url);
-            patchContent = await response.text();
-          }
-        }
-
-        const extractedFilesWithContent = o.extractedFiles
-          ? await Promise.all(
-              o.extractedFiles.map(async (f) => {
-                let content: string | null = null;
-                if (f.storageId) {
-                  const url = await ctx.storage.getUrl(f.storageId);
-                  if (url) {
-                    const response = await fetch(url);
-                    content = await response.text();
-                  }
-                }
-                return { path: f.path, content };
-              })
-            )
-          : null;
-
-        return {
-          ...o,
-          patch: patchContent,
-          extractedFiles: extractedFilesWithContent,
-        };
-      })
-    );
+    return outputs.map((o) => ({
+      type: o.type,
+      julesSessionId: o.julesSessionId,
+      patchStorageId: o.patchStorageId,
+      extractedFiles: o.extractedFiles?.map((f) => ({
+        path: f.path,
+        storageId: f.storageId,
+      })) ?? null,
+    }));
   },
 });
 

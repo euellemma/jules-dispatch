@@ -248,31 +248,25 @@ export async function processTelegramUpdate(
         return { success: true, handled: true };
       }
 
-      const threadId = await ctx.runMutation(
-        internal.users.db.getOrCreateUserThread,
-        {
-          telegramChatId: chatId,
-        },
-      );
-
-      const fileBuffer = await downloadTelegramFile(fileId);
-      const storageId = await ctx.storage.store(
-        new Blob([new Uint8Array(fileBuffer).buffer]) as any,
-      );
-
-      await ctx.runMutation((internal as any).files.db.addUploadedFile, {
-        threadId,
-        storageId,
-        originalName: fileName,
+      await ctx.runAction(internal.api.telegram.downloadAndStoreFile, {
+        telegramChatId: chatId,
+        fileId,
+        fileName,
         caption,
-        size: size || 0,
+        size,
       });
 
       if (caption) {
-        await queueMessage(ctx, chatId, caption, threadId);
+        const threadId = await ctx.runMutation(
+          internal.users.db.getOrCreateUserThread,
+          {
+            telegramChatId: chatId,
+          },
+        );
+        await queueMessage(ctx, chatId, `Caption for file "${fileName}": ${caption}`, threadId);
       }
 
-      return { success: true, handled: true, threadId };
+      return { success: true, handled: true };
     }
 
     const threadId = await ctx.runMutation(

@@ -581,11 +581,33 @@ export const fetch_session_files = createTool({
       const filePaths = Array.isArray(args.filePath) ? args.filePath : [args.filePath];
       console.log(`[fetch_session_files] Fetching ${filePaths.length} file(s) from session ${args.julesSessionId}, mode=${args.mode}`);
 
-      const outputs = await ctx.runQuery(internal.sessions.db.getSessionOutputs, {
+      const rawOutputs = await ctx.runQuery(internal.sessions.db.getSessionOutputsRaw, {
         julesSessionId: args.julesSessionId,
       });
 
-      console.log(`[fetch_session_files] Got ${outputs.length} output record(s) for session ${args.julesSessionId}`);
+      console.log(`[fetch_session_files] Got ${rawOutputs.length} output record(s) for session ${args.julesSessionId}`);
+
+      // Fetch file content from Convex storage
+      const outputs = await Promise.all(
+        rawOutputs.map(async (o) => {
+          const extractedFilesWithContent = o.extractedFiles
+            ? await Promise.all(
+                o.extractedFiles.map(async (f) => {
+                  let content: string | null = null;
+                  if (f.storageId) {
+                    const url = await ctx.storage.getUrl(f.storageId);
+                    if (url) {
+                      const response = await fetch(url);
+                      content = await response.text();
+                    }
+                  }
+                  return { path: f.path, content };
+                })
+              )
+            : null;
+          return { type: o.type, extractedFiles: extractedFilesWithContent };
+        })
+      );
 
       const latestFiles = new Map<string, string>();
       for (const out of outputs) {
