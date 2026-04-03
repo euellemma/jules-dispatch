@@ -403,7 +403,7 @@ async function processOutputs(
   }
 
   if (processedOutputs.length > 0) {
-    await ctx.runMutation(internal.sessions.db.saveSessionOutputs, {
+    await ctx.runAction(internal.sessions.storageActions.saveSessionOutputs, {
       julesSessionId,
       outputs: processedOutputs,
     });

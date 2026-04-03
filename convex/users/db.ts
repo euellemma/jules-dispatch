@@ -303,7 +303,12 @@ export const nukeUserData = internalMutation({
     // Note: uploadedFiles are deleted by deleteAllFiles in the action
     // so storage can also be cleaned up
 
-    // 5. Cycle thread
+    // 5. Delete all messages in the old thread from the agent component
+    await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
+      threadId: oldThreadId,
+    });
+
+    // 6. Cycle thread
     const newThreadId = await createThread(ctx, components.agent);
     await ctx.db.patch(user._id, { 
       threadId: newThreadId,

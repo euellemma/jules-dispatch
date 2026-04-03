@@ -110,18 +110,18 @@ export const upsertDiscoveredSession = internalMutation({
   }
 });
 
-export const saveSessionOutputs = internalMutation({
+export const saveSessionOutputRecord = internalMutation({
   args: {
     julesSessionId: v.string(),
-    outputs: v.array(v.object({
+    output: v.object({
       type: v.string(),
       source: v.optional(v.string()),
       baseCommitId: v.optional(v.string()),
       extractedFiles: v.optional(v.array(v.object({
         path: v.string(),
-        content: v.string(),
+        storageId: v.optional(v.id("_storage")),
       }))),
-      patch: v.optional(v.string()),
+      patchStorageId: v.optional(v.id("_storage")),
       url: v.optional(v.string()),
       title: v.optional(v.string()),
       description: v.optional(v.string()),
@@ -129,62 +129,118 @@ export const saveSessionOutputs = internalMutation({
       headRef: v.optional(v.string()),
       activityId: v.optional(v.string()),
       isIncremental: v.optional(v.boolean()),
-    })),
+    }),
   },
   handler: async (ctx, args) => {
-    for (const output of args.outputs) {
-      if (output.isIncremental) {
-        const existing = await ctx.db
-          .query("sessionOutputs")
-          .withIndex("by_julesSessionId", (q) => q.eq("julesSessionId", args.julesSessionId))
-          .filter((q) => q.eq(q.field("isIncremental"), true))
-          .unique();
+    const { output } = args;
 
-        if (existing) {
-          await ctx.db.patch(existing._id, {
-            type: output.type,
-            source: output.source,
-            baseCommitId: output.baseCommitId,
-            extractedFiles: output.extractedFiles,
-            patch: output.patch,
-            url: output.url,
-            title: output.title,
-            description: output.description,
-            baseRef: output.baseRef,
-            headRef: output.headRef,
-            activityId: output.activityId,
-          });
-          continue;
+    if (output.isIncremental) {
+      const existing = await ctx.db
+        .query("sessionOutputs")
+        .withIndex("by_julesSessionId", (q) => q.eq("julesSessionId", args.julesSessionId))
+        .filter((q) => q.eq(q.field("isIncremental"), true))
+        .unique();
+
+      if (existing) {
+        const oldStorageIds: string[] = [];
+        if (existing.patchStorageId) oldStorageIds.push(existing.patchStorageId);
+        for (const f of existing.extractedFiles || []) {
+          if (f.storageId) oldStorageIds.push(f.storageId);
+        }
+
+        await ctx.db.patch(existing._id, {
+          type: output.type,
+          source: output.source,
+          baseCommitId: output.baseCommitId,
+          extractedFiles: output.extractedFiles,
+          patchStorageId: output.patchStorageId,
+          url: output.url,
+          title: output.title,
+          description: output.description,
+          baseRef: output.baseRef,
+          headRef: output.headRef,
+          activityId: output.activityId,
+        });
+
+        for (const id of oldStorageIds) {
+          await ctx.storage.delete(id as any);
+        }
+        return;
+      }
+    } else {
+      const existingFinals = await ctx.db
+        .query("sessionOutputs")
+        .withIndex("by_julesSessionId", (q) => q.eq("julesSessionId", args.julesSessionId))
+        .filter((q) => q.eq(q.field("isIncremental"), false))
+        .collect();
+
+      const oldStorageIds: string[] = [];
+      for (const rec of existingFinals) {
+        if (rec.patchStorageId) oldStorageIds.push(rec.patchStorageId);
+        for (const f of rec.extractedFiles || []) {
+          if (f.storageId) oldStorageIds.push(f.storageId);
         }
       }
 
-      await ctx.db.insert("sessionOutputs", {
-        julesSessionId: args.julesSessionId,
-        type: output.type,
-        source: output.source,
-        baseCommitId: output.baseCommitId,
-        extractedFiles: output.extractedFiles,
-        patch: output.patch,
-        url: output.url,
-        title: output.title,
-        description: output.description,
-        baseRef: output.baseRef,
-        headRef: output.headRef,
-        activityId: output.activityId,
-        isIncremental: output.isIncremental,
-      });
+      for (const rec of existingFinals) {
+        await ctx.db.delete(rec._id);
+      }
+
+      for (const id of oldStorageIds) {
+        await ctx.storage.delete(id as any);
+      }
     }
-  }
+
+    await ctx.db.insert("sessionOutputs", {
+      julesSessionId: args.julesSessionId,
+      ...output,
+    });
+  },
 });
 
 export const getSessionOutputs = internalQuery({
   args: { julesSessionId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const outputs = await ctx.db
       .query("sessionOutputs")
       .withIndex("by_julesSessionId", (q) => q.eq("julesSessionId", args.julesSessionId))
       .collect();
-  }
+
+    return Promise.all(
+      outputs.map(async (o) => {
+        let patchContent: string | null = null;
+        if (o.patchStorageId) {
+          const url = await ctx.storage.getUrl(o.patchStorageId);
+          if (url) {
+            const response = await fetch(url);
+            patchContent = await response.text();
+          }
+        }
+
+        const extractedFilesWithContent = o.extractedFiles
+          ? await Promise.all(
+              o.extractedFiles.map(async (f) => {
+                let content: string | null = null;
+                if (f.storageId) {
+                  const url = await ctx.storage.getUrl(f.storageId);
+                  if (url) {
+                    const response = await fetch(url);
+                    content = await response.text();
+                  }
+                }
+                return { path: f.path, content };
+              })
+            )
+          : null;
+
+        return {
+          ...o,
+          patch: patchContent,
+          extractedFiles: extractedFilesWithContent,
+        };
+      })
+    );
+  },
 });
 
 export const getSessionByJulesId = internalQuery({

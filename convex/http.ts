@@ -7,7 +7,6 @@ import type {
   SaveProviderConfigBody,
   SaveApiKeyBody,
   TestConnectionBody,
-  TelegramUpdate,
 } from "./types";
 
 const http = httpRouter();
@@ -39,9 +38,12 @@ async function requireValidSettingsSession(
     return corsResponse({ error: missingTokenMessage }, 400);
   }
 
-  const telegramChatId = await ctx.runQuery(internal.users.db.validateAuthSession, {
-    token,
-  });
+  const telegramChatId = await ctx.runQuery(
+    internal.users.db.validateAuthSession,
+    {
+      token,
+    },
+  );
 
   if (!telegramChatId) {
     return corsResponse({ error: invalidSessionMessage }, 401);
@@ -51,12 +53,48 @@ async function requireValidSettingsSession(
 }
 
 // Preflight handlers
-http.route({ path: "/settings/api/config", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
-http.route({ path: "/settings/api/save", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
-http.route({ path: "/settings/api/save-jules", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
-http.route({ path: "/settings/api/save-exa", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
-http.route({ path: "/settings/api/test", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
-http.route({ path: "/settings/api/notifications", method: "OPTIONS", handler: httpAction(async () => new Response(null, { status: 204, headers: CORS_HEADERS })) });
+http.route({
+  path: "/settings/api/config",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
+  ),
+});
+http.route({
+  path: "/settings/api/save",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
+  ),
+});
+http.route({
+  path: "/settings/api/save-jules",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
+  ),
+});
+http.route({
+  path: "/settings/api/save-exa",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
+  ),
+});
+http.route({
+  path: "/settings/api/test",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
+  ),
+});
+http.route({
+  path: "/settings/api/notifications",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
+  ),
+});
 
 // API: Get provider config (for React app)
 http.route({
@@ -75,9 +113,12 @@ http.route({
         telegramChatId: auth,
       });
 
-      const user = await ctx.runQuery(internal.users.db.getUserNotificationPreference, {
-        telegramChatId: auth,
-      });
+      const user = await ctx.runQuery(
+        internal.users.db.getUserNotificationPreference,
+        {
+          telegramChatId: auth,
+        },
+      );
 
       return corsResponse({
         telegramChatId: auth,
@@ -101,7 +142,12 @@ http.route({
     try {
       const body = (await request.json()) as SaveApiKeyBody;
       const { token, apiKey } = body;
-      const auth = await requireValidSettingsSession(ctx, token, "Missing token", "Invalid session");
+      const auth = await requireValidSettingsSession(
+        ctx,
+        token,
+        "Missing token",
+        "Invalid session",
+      );
       if (auth instanceof Response) {
         return auth;
       }
@@ -126,7 +172,12 @@ http.route({
     try {
       const body = (await request.json()) as SaveApiKeyBody;
       const { token, apiKey } = body;
-      const auth = await requireValidSettingsSession(ctx, token, "Missing token", "Invalid session");
+      const auth = await requireValidSettingsSession(
+        ctx,
+        token,
+        "Missing token",
+        "Invalid session",
+      );
       if (auth instanceof Response) {
         return auth;
       }
@@ -161,7 +212,12 @@ http.route({
         endpoint: endpoint || "",
         model: model || "",
         apiKey: apiKey || "",
-        sdkType: (sdkType as "openai" | "anthropic" | "google" | "openai-compatible") || "openai-compatible",
+        sdkType:
+          (sdkType as
+            | "openai"
+            | "anthropic"
+            | "google"
+            | "openai-compatible") || "openai-compatible",
       });
 
       try {
@@ -194,12 +250,19 @@ http.route({
         return auth;
       }
 
-      const result = await ctx.runAction(internal.users.actions.testConnection, {
-        endpoint,
-        model,
-        apiKey,
-        sdkType: sdkType as "openai" | "anthropic" | "google" | "openai-compatible",
-      });
+      const result = await ctx.runAction(
+        internal.users.actions.testConnection,
+        {
+          endpoint,
+          model,
+          apiKey,
+          sdkType: sdkType as
+            | "openai"
+            | "anthropic"
+            | "google"
+            | "openai-compatible",
+        },
+      );
 
       return corsResponse(result);
     } catch (error) {
@@ -215,7 +278,10 @@ http.route({
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     try {
-      const body = await request.json() as { token: string; enabled: boolean };
+      const body = (await request.json()) as {
+        token: string;
+        enabled: boolean;
+      };
       const { token, enabled } = body;
       const auth = await requireValidSettingsSession(ctx, token);
       if (auth instanceof Response) {
@@ -230,7 +296,10 @@ http.route({
       return corsResponse({ success: true });
     } catch (error) {
       console.error("[http] Save notifications error:", error);
-      return corsResponse({ error: "Error saving notification preference" }, 500);
+      return corsResponse(
+        { error: "Error saving notification preference" },
+        500,
+      );
     }
   }),
 });

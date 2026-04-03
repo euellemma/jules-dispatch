@@ -68,10 +68,6 @@ export const nukeUserAction = internalAction({
       await ctx.storage.delete(sid);
     }
 
-    // 3. Clear the actual thread messages in the agent component
-    await ctx.runMutation(components.agent.threads.deleteAllForThreadIdAsync, {
-      threadId: oldThreadId,
-    });
   },
 });
 

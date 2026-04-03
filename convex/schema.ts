@@ -59,25 +59,25 @@ export default defineSchema({
 
   sessionOutputs: defineTable({
     julesSessionId: v.string(),
-    type: v.string(), // "changeSet" | "pullRequest"
-    source: v.optional(v.string()), // Git source for changeSet
-    baseCommitId: v.optional(v.string()), // Base commit for changeSet
+    type: v.string(),
+    source: v.optional(v.string()),
+    baseCommitId: v.optional(v.string()),
     extractedFiles: v.optional(
       v.array(
         v.object({
           path: v.string(),
-          content: v.string(),
+          storageId: v.optional(v.id("_storage")),
         }),
       ),
     ),
-    patch: v.optional(v.string()), // Unified diff if available
-    url: v.optional(v.string()), // PR URL for pullRequest
-    title: v.optional(v.string()), // PR title
-    description: v.optional(v.string()), // PR description
-    baseRef: v.optional(v.string()), // PR base branch
-    headRef: v.optional(v.string()), // PR head branch
-    activityId: v.optional(v.string()), // ID of the activity that produced this output
-    isIncremental: v.optional(v.boolean()), // true if from progressUpdated, false if from session.info().outputs
+    patchStorageId: v.optional(v.id("_storage")),
+    url: v.optional(v.string()),
+    title: v.optional(v.string()),
+    description: v.optional(v.string()),
+    baseRef: v.optional(v.string()),
+    headRef: v.optional(v.string()),
+    activityId: v.optional(v.string()),
+    isIncremental: v.optional(v.boolean()),
   }).index("by_julesSessionId", ["julesSessionId"]),
 
   uploadedFiles: defineTable({

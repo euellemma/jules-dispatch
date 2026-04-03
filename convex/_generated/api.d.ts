@@ -28,6 +28,7 @@ import type * as sessions_actions from "../sessions/actions.js";
 import type * as sessions_db from "../sessions/db.js";
 import type * as sessions_sessionManager from "../sessions/sessionManager.js";
 import type * as sessions_sessionManagerAgent from "../sessions/sessionManagerAgent.js";
+import type * as sessions_storageActions from "../sessions/storageActions.js";
 import type * as staticHosting from "../staticHosting.js";
 import type * as tasks from "../tasks.js";
 import type * as tools_exa_search from "../tools/exa_search.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   "sessions/db": typeof sessions_db;
   "sessions/sessionManager": typeof sessions_sessionManager;
   "sessions/sessionManagerAgent": typeof sessions_sessionManagerAgent;
+  "sessions/storageActions": typeof sessions_storageActions;
   staticHosting: typeof staticHosting;
   tasks: typeof tasks;
   "tools/exa_search": typeof tools_exa_search;

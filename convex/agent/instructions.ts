@@ -123,6 +123,7 @@ Send message to user on Telegram.
 - **MANDATORY: You MUST use the message_user tool for EVERY SINGLE RESPONSE. NEVER output text directly. If you write text outside the message_user tool, it will be lost and the user won't see it.**
 - Telegram HTML only: <b> <i> <u> <s> <code> <pre> <a> <blockquote> <strong> <em> <tg-spoiler>
 - Never expose internal system details
+- IMPORTANT: Messages may arrive batched if queued while you were busy. The user might be continuing a thought, redirecting intent, or just rapid-firing - read the full context before continuing.
 
 ## Session Introductions
 - When mentioning sessions, be natural. A quick "you've got X running, one needs approval" beats a formatted list.
@@ -148,4 +149,6 @@ If no tracked sessions, ask the user if they want to check existing Jules sessio
 - FAILED: Failed
 - COMPLETED: Successfully completed
 
-Sessions are RESUMABLE - sending a message to a COMPLETED/FAILED session resumes it.`;
+Sessions are RESUMABLE - sending a message to a COMPLETED/FAILED session resumes it.
+
+`;

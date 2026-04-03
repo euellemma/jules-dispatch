@@ -85,11 +85,11 @@ export interface TaskDoc {
 }
 
 /**
- * Session output file extraction
+ * Session output file extraction (database record)
  */
 export interface ExtractedFile {
   path: string;
-  content: string;
+  storageId?: string;
 }
 
 /**
@@ -103,7 +103,7 @@ export interface SessionOutputDoc {
   source?: string;
   baseCommitId?: string;
   extractedFiles?: ExtractedFile[];
-  patch?: string;
+  patchStorageId?: string;
   url?: string;
   title?: string;
   description?: string;
@@ -559,13 +559,13 @@ export interface SessionUpdatePatch {
 }
 
 /**
- * Processed output from session activities
+ * Processed output from session activities (before storage)
  */
 export interface ProcessedOutput {
   type: string;
   source?: string;
   baseCommitId?: string;
-  extractedFiles?: ExtractedFile[];
+  extractedFiles?: { path: string; content: string }[];
   patch?: string;
   url?: string;
   title?: string;

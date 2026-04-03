@@ -492,7 +492,8 @@ export const processMessageQueue = internalAction({
       const batchPrompt =
         messages.length === 1
           ? messages[0]
-          : messages
+          : `Queued:\n ` +
+            messages
               .map((m: string, i: number) => `Message ${i + 1}: ${m}`)
               .join("\n");
 

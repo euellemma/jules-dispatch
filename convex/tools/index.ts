@@ -3,7 +3,12 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import { spawnSessionManagerAgent } from "../sessions/sessionManagerAgent";
 import { resolveLanguageModel } from "../agent/modelResolver";
-import type { SessionQueryResult, SessionInfo, SessionUpdatePatch, FileRegistrationResult, JulesSessionState } from "../types";
+import type {
+  SessionQueryResult,
+  SessionInfo,
+  SessionUpdatePatch,
+  FileRegistrationResult,
+} from "../types";
 import { normalizeState, needsUserAction } from "../types";
 
 export const message_jules = createTool({
@@ -18,10 +23,10 @@ export const message_jules = createTool({
       .describe("The message or instruction to send to the Jules agent."),
   }),
   execute: async (ctx, args): Promise<string> => {
-    const res = await ctx.runAction(
-      internal.sessions.actions.sendMessage,
-      { sessionId: args.julesSessionId, prompt: args.prompt },
-    );
+    const res = await ctx.runAction(internal.sessions.actions.sendMessage, {
+      sessionId: args.julesSessionId,
+      prompt: args.prompt,
+    });
     if (res.success) {
       return `Message sent successfully to session ${args.julesSessionId}`;
     } else {
@@ -41,10 +46,9 @@ export const approve_plan = createTool({
       ),
   }),
   execute: async (ctx, args): Promise<string> => {
-    const res = await ctx.runAction(
-      internal.sessions.actions.approvePlan,
-      { sessionId: args.julesSessionId },
-    );
+    const res = await ctx.runAction(internal.sessions.actions.approvePlan, {
+      sessionId: args.julesSessionId,
+    });
     if (res.success) {
       return `Plan approved successfully for session ${args.julesSessionId}`;
     } else {
@@ -83,74 +87,72 @@ export const message_user = createTool({
 export const create_session = createTool({
   description:
     "Create a new Jules session. If a repository or branch is invalid or the GitHub integration has expired, an error will be returned. DO NOT crash, simply return the error back to the user and ask for the correct details.",
-  inputSchema: z.object({
-    prompt: z
-      .string()
-      .describe("The initial instruction or task description for the agent."),
-    title: z
-      .string()
-      .optional()
-      .describe(
-        "A short, descriptive title for the session. If not provided, you should infer a 5-word kebab-case name based on the prompt.",
-      ),
-    githubRepo: z
-      .string()
-      .optional()
-      .describe(
-        "The GitHub repository in the format 'owner/repo'. Omit for a repoless session.",
-      ),
-    baseBranch: z
-      .string()
-      .optional()
-      .describe(
-        "The base branch to branch off of when starting the session. Required if githubRepo is provided.",
-      ),
-    requireApproval: z
-      .boolean()
-      .optional()
-      .default(true)
-      .describe(
-        "If true, the agent waits for explicit approval of plans before executing.",
-      ),
-    autoPr: z
-      .boolean()
-      .optional()
-      .default(false)
-      .describe(
-        "If true, the agent automatically creates a Pull Request when the task is completed.",
-      ),
-    prefs: z
-      .object({
-        approval: z.enum(["auto", "confirm", "strict"]).default("confirm"),
-        verbosity: z.enum(["silent", "milestones", "full"]).default("milestones"),
-      })
-      .optional()
-      .describe(
-        "Session interaction preferences toward the user. approval: when to ask permission (auto=act first, confirm=ask before irreversible, strict=ask before most). verbosity: how much to report (silent=outcomes only, milestones=key progress, full=ongoing updates).",
-      ),
-  }).refine(
-    (data) => !(data.githubRepo && !data.baseBranch),
-    {
+  inputSchema: z
+    .object({
+      prompt: z
+        .string()
+        .describe("The initial instruction or task description for the agent."),
+      title: z
+        .string()
+        .optional()
+        .describe(
+          "A short, descriptive title for the session. If not provided, you should infer a 5-word kebab-case name based on the prompt.",
+        ),
+      githubRepo: z
+        .string()
+        .optional()
+        .describe(
+          "The GitHub repository in the format 'owner/repo'. Omit for a repoless session.",
+        ),
+      baseBranch: z
+        .string()
+        .optional()
+        .describe(
+          "The base branch to branch off of when starting the session. Required if githubRepo is provided.",
+        ),
+      requireApproval: z
+        .boolean()
+        .optional()
+        .default(true)
+        .describe(
+          "If true, the agent waits for explicit approval of plans before executing.",
+        ),
+      autoPr: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "If true, the agent automatically creates a Pull Request when the task is completed.",
+        ),
+      prefs: z
+        .object({
+          approval: z.enum(["auto", "confirm", "strict"]).default("confirm"),
+          verbosity: z
+            .enum(["silent", "milestones", "full"])
+            .default("milestones"),
+        })
+        .optional()
+        .describe(
+          "Session interaction preferences toward the user. approval: when to ask permission (auto=act first, confirm=ask before irreversible, strict=ask before most). verbosity: how much to report (silent=outcomes only, milestones=key progress, full=ongoing updates).",
+        ),
+    })
+    .refine((data) => !(data.githubRepo && !data.baseBranch), {
       message: "baseBranch is required when githubRepo is provided",
       path: ["baseBranch"],
-    }
-  ),
+    }),
   execute: async (ctx, args): Promise<string> => {
     if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
 
-    const res = await ctx.runAction(
-      internal.sessions.actions.createSession,
-      {
-        threadId: ctx.threadId,
-        prompt: args.prompt,
-        title: args.title,
-        githubRepo: args.githubRepo,
-        baseBranch: args.baseBranch,
-        requireApproval: args.requireApproval,
-        autoPr: args.autoPr,
-        ...(args.prefs ? { prefs: args.prefs } : {}),
-      },
-    );
+    const res = await ctx.runAction(internal.sessions.actions.createSession, {
+      threadId: ctx.threadId,
+      prompt: args.prompt,
+      title: args.title,
+      githubRepo: args.githubRepo,
+      baseBranch: args.baseBranch,
+      requireApproval: args.requireApproval,
+      autoPr: args.autoPr,
+      ...(args.prefs ? { prefs: args.prefs } : {}),
+    });
 
     if (!res.success || !res.id) {
       return `Error creating session: ${res.error}. Please check the repository, branch, and ensure GitHub integration is active.`;
@@ -242,17 +244,15 @@ export const handle_files = createTool({
   }),
   execute: async (ctx, args): Promise<string> => {
     if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
-    const results = await ctx.runMutation(
-      internal.files.db.registerFiles,
-      {
-        threadId: ctx.threadId,
-        registrations: args.registrations.map(reg => ({
-          fileId: reg.fileId as unknown as import("../_generated/dataModel").Id<"uploadedFiles">,
-          assignedName: reg.assignedName,
-          action: reg.action,
-        })),
-      },
-    );
+    const results = await ctx.runMutation(internal.files.db.registerFiles, {
+      threadId: ctx.threadId,
+      registrations: args.registrations.map((reg) => ({
+        fileId:
+          reg.fileId as unknown as import("../_generated/dataModel").Id<"uploadedFiles">,
+        assignedName: reg.assignedName,
+        action: reg.action,
+      })),
+    });
 
     return (
       `Processed ${results.length} files:\n` +
@@ -278,25 +278,30 @@ export const query_sessions = createTool({
   description:
     "Browse, search, inspect, and manage the user's Jules sessions. Discovers sessions from the Jules API on-demand. Spawns a session manager sub-agent with filtering support (time, state, fuzzy search).",
   inputSchema: z.object({
-    prompt: z.string().describe(
-      "What the user wants to do — e.g. 'find active sessions from today', 'show failed sessions from last week', 'track all sessions about auth', 'register all unregistered sessions'.",
-    ),
+    prompt: z
+      .string()
+      .describe(
+        "What the user wants to do — e.g. 'find active sessions from today', 'show failed sessions from last week', 'track all sessions about auth', 'register all unregistered sessions'.",
+      ),
   }),
   execute: async (ctx, args): Promise<string> => {
-    const result = await ctx.runAction(
+    const result = (await ctx.runAction(
       internal.sessions.sessionManager.getAllSessionsWithInfo,
       {},
-    ) as SessionQueryResult;
+    )) as SessionQueryResult;
 
     if (!result.success) {
       return `Error: ${result.error || "Failed to fetch sessions"}`;
     }
 
     const sessions = result.sessions || [];
-    const prompt = args.prompt|| "Show me my sessions and let me know if any need attention.";
+    const prompt =
+      args.prompt ||
+      "Show me my sessions and let me know if any need attention.";
 
-    if (!ctx.threadId) throw new Error("Tool must be called within a thread context.");
-    
+    if (!ctx.threadId)
+      throw new Error("Tool must be called within a thread context.");
+
     const model = await resolveLanguageModel(ctx, ctx.threadId);
     return spawnSessionManagerAgent(ctx, sessions, prompt, ctx.threadId, model);
   },
@@ -306,34 +311,81 @@ export const query_sessions = createTool({
  * manage_sessions — Bulk manage Jules sessions.
  */
 export const manage_sessions = createTool({
-  description: "Bulk manage Jules sessions. REGISTER: acknowledge unregistered sessions. TRACK: add to dashboard. ARCHIVE: remove tracked sessions from dashboard (untrack). CONFIGURE: reconfigure approval/verbosity preferences.",
+  description:
+    "Bulk manage Jules sessions. REGISTER: acknowledge unregistered sessions. TRACK: add to dashboard. ARCHIVE: remove tracked sessions from dashboard (untrack). CONFIGURE: reconfigure approval/verbosity preferences.",
   inputSchema: z.object({
-    action: z.enum(["REGISTER", "TRACK", "ARCHIVE", "CONFIGURE"])
-      .describe("REGISTER: Acknowledge unregistered sessions. TRACK: Add to dashboard. ARCHIVE: Remove tracked sessions from dashboard (untrack). CONFIGURE: Reconfigure approval/verbosity preferences."),
-    selection: z.object({
-      ids: z.array(z.string()).optional().describe("Specific session IDs to target."),
-      target: z.enum(["unregistered", "active", "needs_attention", "terminal", "tracked", "all"]).optional()
-        .describe("Target groups: 'unregistered' (not yet acknowledged), 'tracked' (in dashboard), 'active' (non-terminal states), 'needs_attention' (awaiting plan approval, user feedback, or paused), 'terminal' (completed/failed), or 'all'."),
-      state: z.array(z.enum([
-        "STATE_UNSPECIFIED", "QUEUED", "PLANNING", "AWAITING_PLAN_APPROVAL",
-        "AWAITING_USER_FEEDBACK", "IN_PROGRESS", "PAUSED", "FAILED", "COMPLETED", "all"
-      ])).optional()
-        .describe("CLIENT-SIDE filter by Jules session state(s). Can specify multiple states as array. Use 'all' for no state filter. Note: Jules API does not support server-side state filtering; filtering is performed locally after fetching sessions."),
-      since: z.enum(["1h", "6h", "24h", "7d", "30d", "all"]).optional()
-        .describe("Filter target by creation time. Only applies when 'target' is used."),
-    }).refine(s => s.ids || s.target, "Must provide either 'ids' or 'target'."),
-    prefs: z.object({
-      approval: z.enum(["auto", "confirm", "strict"]).optional(),
-      verbosity: z.enum(["silent", "milestones", "full"]).optional(),
-    }).optional().describe("Used with CONFIGURE action to reconfigure sessions' approval/verbosity preferences."),
+    action: z
+      .enum(["REGISTER", "TRACK", "ARCHIVE", "CONFIGURE"])
+      .describe(
+        "REGISTER: Acknowledge unregistered sessions. TRACK: Add to dashboard. ARCHIVE: Remove tracked sessions from dashboard (untrack). CONFIGURE: Reconfigure approval/verbosity preferences.",
+      ),
+    selection: z
+      .object({
+        ids: z
+          .array(z.string())
+          .optional()
+          .describe("Specific session IDs to target."),
+        target: z
+          .enum([
+            "unregistered",
+            "active",
+            "needs_attention",
+            "terminal",
+            "tracked",
+            "all",
+          ])
+          .optional()
+          .describe(
+            "Target groups: 'unregistered' (not yet acknowledged), 'tracked' (in dashboard), 'active' (non-terminal states), 'needs_attention' (awaiting plan approval, user feedback, or paused), 'terminal' (completed/failed), or 'all'.",
+          ),
+        state: z
+          .array(
+            z.enum([
+              "STATE_UNSPECIFIED",
+              "QUEUED",
+              "PLANNING",
+              "AWAITING_PLAN_APPROVAL",
+              "AWAITING_USER_FEEDBACK",
+              "IN_PROGRESS",
+              "PAUSED",
+              "FAILED",
+              "COMPLETED",
+              "all",
+            ]),
+          )
+          .optional()
+          .describe(
+            "CLIENT-SIDE filter by Jules session state(s). Can specify multiple states as array. Use 'all' for no state filter. Note: Jules API does not support server-side state filtering; filtering is performed locally after fetching sessions.",
+          ),
+        since: z
+          .enum(["1h", "6h", "24h", "7d", "30d", "all"])
+          .optional()
+          .describe(
+            "Filter target by creation time. Only applies when 'target' is used.",
+          ),
+      })
+      .refine(
+        (s) => s.ids || s.target,
+        "Must provide either 'ids' or 'target'.",
+      ),
+    prefs: z
+      .object({
+        approval: z.enum(["auto", "confirm", "strict"]).optional(),
+        verbosity: z.enum(["silent", "milestones", "full"]).optional(),
+      })
+      .optional()
+      .describe(
+        "Used with CONFIGURE action to reconfigure sessions' approval/verbosity preferences.",
+      ),
   }),
   execute: async (ctx, args): Promise<string> => {
-    const result = await ctx.runAction(
+    const result = (await ctx.runAction(
       internal.sessions.sessionManager.getAllSessionsBasic,
       {},
-    ) as SessionQueryResult;
+    )) as SessionQueryResult;
 
-    if (!result.success) return "Error: Failed to fetch sessions for bulk operation.";
+    if (!result.success)
+      return "Error: Failed to fetch sessions for bulk operation.";
 
     const sessions = result.sessions;
     let targetIds: string[] = args.selection.ids || [];
@@ -343,7 +395,7 @@ export const manage_sessions = createTool({
 
       // Apply state filter
       if (args.selection.state && !args.selection.state.includes("all")) {
-        const states = args.selection.state.map(s => s.toUpperCase());
+        const states = args.selection.state.map((s) => s.toUpperCase());
         filtered = filtered.filter((s: SessionInfo) => {
           const normalized = normalizeState(s.state);
           return states.includes(normalized);
@@ -352,11 +404,19 @@ export const manage_sessions = createTool({
 
       // Apply time filter
       if (args.selection.since && args.selection.since !== "all") {
-        const sinceHours: Record<string, number> = { "1h": 1, "6h": 6, "24h": 24, "7d": 168, "30d": 720 };
+        const sinceHours: Record<string, number> = {
+          "1h": 1,
+          "6h": 6,
+          "24h": 24,
+          "7d": 168,
+          "30d": 720,
+        };
         const hours = sinceHours[args.selection.since] || 0;
         const cutoff = Date.now() - hours * 60 * 60 * 1000;
         filtered = filtered.filter((s: SessionInfo) => {
-          const created = s.lastActivity ? new Date(s.lastActivity).getTime() : 0;
+          const created = s.lastActivity
+            ? new Date(s.lastActivity).getTime()
+            : 0;
           return created >= cutoff;
         });
       }
@@ -365,13 +425,20 @@ export const manage_sessions = createTool({
       const groupFiltered = filtered.filter((s: SessionInfo) => {
         const st = normalizeState(s.state);
         switch (args.selection.target) {
-          case "unregistered": return !s.acknowledged;
-          case "tracked": return s.inDashboard;
-          case "active": return st !== "COMPLETED" && st !== "FAILED";
-          case "needs_attention": return needsUserAction(st);
-          case "terminal": return st === "COMPLETED" || st === "FAILED";
-          case "all": return true;
-          default: return false;
+          case "unregistered":
+            return !s.acknowledged;
+          case "tracked":
+            return s.inDashboard;
+          case "active":
+            return st !== "COMPLETED" && st !== "FAILED";
+          case "needs_attention":
+            return needsUserAction(st);
+          case "terminal":
+            return st === "COMPLETED" || st === "FAILED";
+          case "all":
+            return true;
+          default:
+            return false;
         }
       });
       const groupIds = groupFiltered.map((s: SessionInfo) => s.julesSessionId);
@@ -409,27 +476,36 @@ export const fetch_session_files = createTool({
     "- read: Return content for your internal context only without sending to the user.",
   inputSchema: z.object({
     julesSessionId: z.string().describe("The ID of the Jules session."),
-    filePath: z.union([z.string(), z.array(z.string())]).describe(
-      "Required. The exact path of the file(s) to fetch. Can be a single file path string or an array of file paths.",
-    ),
-    mode: z.enum(["show", "send", "read"]).optional().default("send").describe(
-      "How to handle the file content.",
-    ),
-    asZip: z.boolean().optional().default(false).describe(
-      "Bundle multiple files into a ZIP before sending. Only applies when mode is 'send'.",
-    ),
+    filePath: z
+      .union([z.string(), z.array(z.string())])
+      .describe(
+        "Required. The exact path of the file(s) to fetch. Can be a single file path string or an array of file paths.",
+      ),
+    mode: z
+      .enum(["show", "send", "read"])
+      .optional()
+      .default("send")
+      .describe("How to handle the file content."),
+    asZip: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Bundle multiple files into a ZIP before sending. Only applies when mode is 'send'.",
+      ),
   }),
   execute: async (ctx, args): Promise<string> => {
-    const outputs = await ctx.runQuery(
-      internal.sessions.db.getSessionOutputs,
-      { julesSessionId: args.julesSessionId },
-    );
+    const outputs = await ctx.runQuery(internal.sessions.db.getSessionOutputs, {
+      julesSessionId: args.julesSessionId,
+    });
 
     const latestFiles = new Map<string, string>();
     for (const out of outputs) {
       if (out && out.type === "changeSet" && out.extractedFiles) {
         for (const file of out.extractedFiles) {
-          latestFiles.set(file.path, file.content);
+          if (file.content) {
+            latestFiles.set(file.path, file.content);
+          }
         }
       }
     }
@@ -466,10 +542,9 @@ export const fetch_session_files = createTool({
       );
       if (!sessionDoc) return "Error: Session not found.";
 
-      const chatId = await ctx.runQuery(
-        internal.users.db.getChatIdForThread,
-        { threadId: sessionDoc.threadId },
-      );
+      const chatId = await ctx.runQuery(internal.users.db.getChatIdForThread, {
+        threadId: sessionDoc.threadId,
+      });
       if (!chatId) return "Error: No Telegram Chat ID found for this session.";
 
       await ctx.runAction(internal.sessions.actions.sendTelegramMessage, {
