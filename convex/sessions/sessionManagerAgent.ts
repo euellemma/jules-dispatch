@@ -19,7 +19,7 @@ function formatSessionsForContext(sessions: SessionInfo[]): string {
 
   const lines: string[] = [];
 
-  lines.push("## Tracked Sessions (Dashboard)");
+  lines.push("## My List");
   if (tracked.length > 0) {
     tracked.forEach((s) => {
       const prefs = s.prefs
@@ -34,7 +34,7 @@ function formatSessionsForContext(sessions: SessionInfo[]): string {
     lines.push("(no tracked sessions)");
   }
 
-  lines.push("\n## Active Untracked Sessions (registered, not in dashboard)");
+  lines.push("\n## Active Untracked Sessions (registered, not in my list)");
   if (activeUntracked.length > 0) {
     activeUntracked.forEach((s) => {
       lines.push(
@@ -108,8 +108,8 @@ Use this when the user asks to "find", "list", or "show" sessions.
 
 **manage_sessions** — Bulk manage sessions:
 - REGISTER: Acknowledge unregistered sessions (marks them as known)
-- TRACK: Add sessions to the dashboard for active monitoring
-- ARCHIVE: Remove tracked sessions from the dashboard (untrack). Only works on tracked sessions.
+- TRACK: Add sessions to my list for active monitoring
+- ARCHIVE: Remove tracked sessions from my list (untrack). Only works on tracked sessions.
 - CONFIGURE: Reconfigure sessions' approval/verbosity preferences
 
 ## Guidelines
@@ -118,13 +118,13 @@ Use this when the user asks to "find", "list", or "show" sessions.
 - Use list_sessions when the prompt asks to find/list/search sessions.
 - Use inspect_session when the prompt asks for details/logs of a specific session.
 - Use REGISTER to handle unregistered sessions.
-- Use TRACK to move sessions to the user's dashboard.
-- Use ARCHIVE to untrack sessions from the dashboard.
+- Use TRACK to move sessions to my list.
+- Use ARCHIVE to untrack sessions from my list.
 
 ## Selection Targets
 When calling manage_sessions, you can use 'target':
 - 'unregistered': All sessions not yet acknowledged.
-- 'tracked': All sessions currently in the dashboard.
+- 'tracked': All sessions currently in my list.
 - 'active': All non-terminal sessions (QUEUED, PLANNING, IN_PROGRESS, etc.)
 - 'needs_attention': Sessions awaiting plan approval, user feedback, or paused.
 - 'terminal': All sessions that are COMPLETED or FAILED.

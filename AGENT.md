@@ -10,7 +10,7 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 ## 🗺 File Map
 
 ### 🤖 Core Agent (Convex Orchestrator)
-- **`convex/agent/instance.ts`**: The `Agent` class instantiation using `@convex-dev/agent`. Contains `contextHandler` for memory, task, dashboard, and uploaded files injection.
+- **`convex/agent/instance.ts`**: The `Agent` class instantiation using `@convex-dev/agent`. Contains `contextHandler` for memory, task, session tracking, and uploaded files injection.
 - **`convex/agent/instructions.ts`**: The System Prompt. Contains rules for silent registration, research delegation, and Telegram HTML.
 - **`convex/agent/modelResolver.ts`**: Resolves the appropriate language model based on the user's `providerConfig` stored in the `users` table.
 - **`convex/config/initial.ts`**: Initial configuration template for seeding the first user. Exports `INITIAL_CONFIG` and `isConfigured()` helper.
@@ -145,7 +145,7 @@ This document is the "Grand Map" of the Jules Dispatch project. It is intended f
 
 Jules Dispatch uses a tiered context architecture to maintain efficiency:
 
-1. **Main Agent (Conversationalist):** Never reads large files directly. It sees metadata (Inbox/Dashboard) and uses **Delegation** to handle complexity.
+1. **Main Agent (Conversationalist):** Never reads large files directly. It sees metadata (Inbox/My List) and uses **Delegation** to handle complexity.
 2. **Research Agent (Fact Extractor):** A specialized sub-agent spawned to analyze specific files or web content. It synthesizes answers and returns high-signal data to the Main Agent.
 3. **Session Manager (Discovery Expert):** A specialized sub-agent for managing 100+ Jules sessions. It handles fuzzy searching across titles, repos, and PR metadata. Receives pre-fetched sessions array — no re-fetching inside the sub-agent.
 4. **Silent Inbox:** User uploads are stored in Convex File Storage and added to a "Silent Inbox" row. The LLM is NOT woken up on upload, reducing cost and noise.
@@ -186,8 +186,8 @@ DISCOVERED ──► REGISTERED ──► TRACKED
 |-------|---------|
 | `acknowledged: false` | Session discovered from API, user hasn't acknowledged |
 | `acknowledged: true` | User knows about this session |
-| `inDashboard: true` | Being actively monitored (polled for updates) |
-| `inDashboard: false` | Not in dashboard (archived or never tracked) |
+| `inDashboard: true` | In my list (being actively monitored) |
+| `inDashboard: false` | Not in my list (archived or never tracked) |
 | `origin: "agent"` | Created by bot via `create_session` |
 | `origin: "discovered"` | Found via API polling |
 | `lastKnownState` | Last known Jules state |
@@ -200,8 +200,8 @@ DISCOVERED ──► REGISTERED ──► TRACKED
 
 ### Tiered Context Injection
 1. **Warm Context (Injected):**
-   - **Tracked Sessions:** Sessions marked `inDashboard: true`.
-   - **Active Untracked:** Sessions that are acknowledged but not in the dashboard, and still running.
+   - **Tracked Sessions:** Sessions in my list (`inDashboard: true`).
+   - **Active Untracked:** Sessions that are acknowledged but not in my list, and still running.
 2. **Context handler uses single DB query** — one `getAllSessions` call, client-side filtering replaces the previous 3 separate queries.
 
 ### Intent-Based Bulk Actions
@@ -242,7 +242,7 @@ Instead of keeping all raw messages, the system continuously compresses the conv
 
 ### Context Handler Order
 ```
-messages → memory (observations) → dashboard → tasks → files
+messages → memory (observations) → my list → tasks → files
 ```
 
 ### Session Context Optimization
@@ -400,7 +400,7 @@ Jules Dispatch uses a **Pure BYOK (Bring Your Own Key)** architecture.
 
 ### Multi-Turn Recovery
 - If an LLM call fails, the user's message is preserved in a pending queue.
-- Once the user updates their settings via the dashboard, the system automatically resumes the pending request.
+- Once the user updates their settings via /connect, the system automatically resumes the pending request.
 
 ### Supported SDK Types
 - `openai-compatible` (Default)

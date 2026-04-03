@@ -4,7 +4,7 @@ import { internal } from "../_generated/api";
 import { julesAgent, resolveLanguageModel } from "../agent/instance";
 import { getJulesClient } from "../tools/nodeActions";
 import type { ProcessedOutput, JulesApiSession } from "../types";
-import { isActiveState, normalizeState } from "../types";
+import { normalizeState } from "../types";
 import type { GenericActionCtx } from "convex/server";
 
 // Type for action context passed to helper functions
@@ -120,33 +120,10 @@ export const pollJulesActivities = internalAction({
         if (currentState !== lastKnownState) {
           console.log(`[pollJulesActivities] Session ${sessionDoc.shortName}: ${lastKnownState || 'unknown'} -> ${currentState}`);
           
-          // Check for resume (COMPLETED/FAILED -> active state)
-          const lastUpper = (lastKnownState || "").toUpperCase();
           const currentUpper = normalizedCurrentState === "UNKNOWN"
             ? (currentState || "").toUpperCase()
             : normalizedCurrentState;
-          const wasTerminal = lastUpper === "COMPLETED" || lastUpper === "FAILED";
-          const isNowActive = isActiveState(currentUpper);
-          const isResumed = wasTerminal && isNowActive;
-          
-          if (isResumed) {
-            wakerEvents.push({
-              type: "resumed",
-              sessionId: sessionDoc.julesSessionId,
-              shortName: sessionDoc.shortName || sessionDoc.julesSessionId.slice(0, 8),
-              threadId: sessionDoc.threadId,
-              details: `Session resumed from ${lastKnownState} to ${currentState}`,
-            });
-          } else {
-            wakerEvents.push({
-              type: "state_change",
-              sessionId: sessionDoc.julesSessionId,
-              shortName: sessionDoc.shortName || sessionDoc.julesSessionId.slice(0, 8),
-              threadId: sessionDoc.threadId,
-              details: `${lastKnownState || 'unknown'} -> ${currentState}`,
-            });
-          }
-          
+
           let updatesText = `[SYSTEM: State Change - ${sessionDoc.shortName} -> ${currentState}]\n\n`;
 
           if (newActivities.length > 0) {
@@ -280,16 +257,8 @@ async function sendWakerEvents(ctx: ActionCtx, events: WakerEvent[]) {
     let message = `[SESSION EVENTS] ${threadEvents.length} event(s):\n\n`;
     
     for (const event of threadEvents) {
-      switch (event.type) {
-        case "resumed":
-          message += `[RESUMED] ${event.shortName}\n   ${event.details}\n\n`;
-          break;
-        case "state_change":
-          message += `[STATE CHANGE] ${event.shortName}\n   ${event.details}\n\n`;
-          break;
-        case "message":
-          message += `[NEW MESSAGE] ${event.shortName}\n   ${event.details}\n\n`;
-          break;
+      if (event.type === "message") {
+        message += `[NEW MESSAGE] ${event.shortName}\n   ${event.details}\n\n`;
       }
     }
     

@@ -1,5 +1,5 @@
 import { internalAction, internalMutation } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { internal, components } from "../_generated/api";
 import { observerInstructions } from "./instructions";
 import { v } from "convex/values";
 import { resolveLanguageModel } from "../agent/instance";
@@ -52,16 +52,19 @@ export const runObservation = internalAction({
     if (!memory) return;
     
     const lastObservedAt = memory.lastObservedAt;
-    const messages = await ctx.runQuery(
-      (internal as any).components.agent.messages.listMessagesByThreadId,
+    const msgResult = await ctx.runQuery(
+      (components as any).agent.messages.listMessagesByThreadId,
       {
         threadId: args.threadId,
-        order: "asc",
+        order: "desc",
         statuses: ["success"],
+        paginationOpts: { numItems: 1000, cursor: null },
       }
     );
-    
-    const unobservedMessages = messages.filter(
+
+    const allMessages = msgResult.page.reverse();
+
+    const unobservedMessages = allMessages.filter(
       (m: any) => m._creationTime > lastObservedAt
     );
     
@@ -134,14 +137,17 @@ export const compactMemory = internalAction({
       threadId: args.threadId,
     });
 
-    const messages = await ctx.runQuery(
-      (internal as any).components.agent.messages.listMessagesByThreadId,
+    const msgResult2 = await ctx.runQuery(
+      (components as any).agent.messages.listMessagesByThreadId,
       {
         threadId: args.threadId,
-        order: "asc",
+        order: "desc",
         statuses: ["success"],
+        paginationOpts: { numItems: 1000, cursor: null },
       }
     );
+
+    const messages = msgResult2.page.reverse();
 
     const HEAD_PROTECT = 7;
     const TAIL_PROTECT = 5;

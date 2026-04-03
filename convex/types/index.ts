@@ -325,7 +325,7 @@ export type SessionQueryResult =
  * Waker event for polling notifications
  */
 export interface WakerEvent {
-  type: "discovered" | "resumed" | "state_change" | "message";
+  type: "discovered" | "message";
   sessionId: string;
   shortName: string;
   threadId: string;

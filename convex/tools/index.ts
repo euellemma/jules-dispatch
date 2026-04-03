@@ -23,14 +23,23 @@ export const message_jules = createTool({
       .describe("The message or instruction to send to the Jules agent."),
   }),
   execute: async (ctx, args): Promise<string> => {
-    const res = await ctx.runAction(internal.sessions.actions.sendMessage, {
-      sessionId: args.julesSessionId,
-      prompt: args.prompt,
-    });
-    if (res.success) {
-      return `Message sent successfully to session ${args.julesSessionId}`;
-    } else {
-      return `Error sending message: ${res.error}`;
+    try {
+      console.log(`[message_jules] Sending prompt to session ${args.julesSessionId}`);
+      const res = await ctx.runAction(internal.sessions.actions.sendMessage, {
+        sessionId: args.julesSessionId,
+        prompt: args.prompt,
+      });
+      if (res.success) {
+        console.log(`[message_jules] Success for session ${args.julesSessionId}`);
+        return `Message sent successfully to session ${args.julesSessionId}`;
+      } else {
+        console.error(`[message_jules] Failed for session ${args.julesSessionId}: ${res.error}`);
+        return `Error sending message: ${res.error}`;
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[message_jules] Unexpected error:`, msg);
+      return `Error sending message: ${msg}`;
     }
   },
 });
@@ -46,13 +55,22 @@ export const approve_plan = createTool({
       ),
   }),
   execute: async (ctx, args): Promise<string> => {
-    const res = await ctx.runAction(internal.sessions.actions.approvePlan, {
-      sessionId: args.julesSessionId,
-    });
-    if (res.success) {
-      return `Plan approved successfully for session ${args.julesSessionId}`;
-    } else {
-      return `Error approving plan: ${res.error}`;
+    try {
+      console.log(`[approve_plan] Approving plan for session ${args.julesSessionId}`);
+      const res = await ctx.runAction(internal.sessions.actions.approvePlan, {
+        sessionId: args.julesSessionId,
+      });
+      if (res.success) {
+        console.log(`[approve_plan] Plan approved for session ${args.julesSessionId}`);
+        return `Plan approved successfully for session ${args.julesSessionId}`;
+      } else {
+        console.error(`[approve_plan] Failed for session ${args.julesSessionId}: ${res.error}`);
+        return `Error approving plan: ${res.error}`;
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[approve_plan] Unexpected error:`, msg);
+      return `Error approving plan: ${msg}`;
     }
   },
 });
@@ -68,18 +86,27 @@ export const message_user = createTool({
       ),
   }),
   execute: async (ctx, args): Promise<string> => {
-    if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
-    const res = await ctx.runAction(
-      internal.sessions.actions.sendTelegramMessage,
-      {
-        threadId: ctx.threadId,
-        message: args.message,
-      },
-    );
-    if (res.success) {
-      return `Message successfully sent to the user on Telegram.`;
-    } else {
-      return `Error sending message: ${res.error}`;
+    try {
+      if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
+      console.log(`[message_user] Sending message to Telegram (thread: ${ctx.threadId})`);
+      const res = await ctx.runAction(
+        internal.sessions.actions.sendTelegramMessage,
+        {
+          threadId: ctx.threadId,
+          message: args.message,
+        },
+      );
+      if (res.success) {
+        console.log(`[message_user] Message sent successfully`);
+        return `Message successfully sent to the user on Telegram.`;
+      } else {
+        console.error(`[message_user] Failed to send: ${res.error}`);
+        return `Error sending message: ${res.error}`;
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[message_user] Unexpected error:`, msg);
+      return `Error sending message: ${msg}`;
     }
   },
 });
@@ -141,34 +168,43 @@ export const create_session = createTool({
       path: ["baseBranch"],
     }),
   execute: async (ctx, args): Promise<string> => {
-    if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
+    try {
+      if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
+      console.log(`[create_session] Creating session with prompt: ${args.prompt.slice(0, 80)}...`);
 
-    const res = await ctx.runAction(internal.sessions.actions.createSession, {
-      threadId: ctx.threadId,
-      prompt: args.prompt,
-      title: args.title,
-      githubRepo: args.githubRepo,
-      baseBranch: args.baseBranch,
-      requireApproval: args.requireApproval,
-      autoPr: args.autoPr,
-      ...(args.prefs ? { prefs: args.prefs } : {}),
-    });
+      const res = await ctx.runAction(internal.sessions.actions.createSession, {
+        threadId: ctx.threadId,
+        prompt: args.prompt,
+        title: args.title,
+        githubRepo: args.githubRepo,
+        baseBranch: args.baseBranch,
+        requireApproval: args.requireApproval,
+        autoPr: args.autoPr,
+        ...(args.prefs ? { prefs: args.prefs } : {}),
+      });
 
-    if (!res.success || !res.id) {
-      return `Error creating session: ${res.error}. Please check the repository, branch, and ensure GitHub integration is active.`;
+      if (!res.success || !res.id) {
+        console.error(`[create_session] Failed: ${res.error}`);
+        return `Error creating session: ${res.error}. Please check the repository, branch, and ensure GitHub integration is active.`;
+      }
+
+      const shortName = args.title || res.id.slice(0, 8);
+      console.log(`[create_session] Session created: ${res.id} (${shortName})`);
+
+      await ctx.runMutation(internal.sessions.db.addSession, {
+        threadId: ctx.threadId,
+        julesSessionId: res.id,
+        shortName,
+        repo: args.githubRepo,
+        ...(args.prefs ? { prefs: args.prefs } : {}),
+      });
+
+      return `Session created successfully! Session ID: ${res.id}. Remember to note the session ID.`;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[create_session] Unexpected error:`, msg);
+      return `Error creating session: ${msg}`;
     }
-
-    const shortName = args.title || res.id.slice(0, 8);
-
-    await ctx.runMutation(internal.sessions.db.addSession, {
-      threadId: ctx.threadId,
-      julesSessionId: res.id,
-      shortName,
-      repo: args.githubRepo,
-      ...(args.prefs ? { prefs: args.prefs } : {}),
-    });
-
-    return `Session created successfully! Session ID: ${res.id}. Remember to note the session ID.`;
   },
 });
 
@@ -186,13 +222,21 @@ export const update_task_list = createTool({
       .describe("The full markdown content of the task list/note."),
   }),
   execute: async (ctx, args): Promise<string> => {
-    if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
-    await ctx.runMutation(internal.tasks.upsertTasks, {
-      threadId: ctx.threadId,
-      key: args.key,
-      content: args.content,
-    });
-    return `Successfully updated task list '${args.key}'.`;
+    try {
+      if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
+      console.log(`[update_task_list] Updating task list '${args.key}'`);
+      await ctx.runMutation(internal.tasks.upsertTasks, {
+        threadId: ctx.threadId,
+        key: args.key,
+        content: args.content,
+      });
+      console.log(`[update_task_list] Task list '${args.key}' updated`);
+      return `Successfully updated task list '${args.key}'.`;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[update_task_list] Error:`, msg);
+      return `Error updating task list: ${msg}`;
+    }
   },
 });
 
@@ -202,12 +246,20 @@ export const delete_task_list = createTool({
     key: z.string().describe("The name or key of the task list to delete."),
   }),
   execute: async (ctx, args): Promise<string> => {
-    if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
-    await ctx.runMutation(internal.tasks.deleteTasks, {
-      threadId: ctx.threadId,
-      key: args.key,
-    });
-    return `Successfully deleted task list '${args.key}'.`;
+    try {
+      if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
+      console.log(`[delete_task_list] Deleting task list '${args.key}'`);
+      await ctx.runMutation(internal.tasks.deleteTasks, {
+        threadId: ctx.threadId,
+        key: args.key,
+      });
+      console.log(`[delete_task_list] Task list '${args.key}' deleted`);
+      return `Successfully deleted task list '${args.key}'.`;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[delete_task_list] Error:`, msg);
+      return `Error deleting task list: ${msg}`;
+    }
   },
 });
 
@@ -243,30 +295,38 @@ export const handle_files = createTool({
       .describe("List of files to process."),
   }),
   execute: async (ctx, args): Promise<string> => {
-    if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
-    const results = await ctx.runMutation(internal.files.db.registerFiles, {
-      threadId: ctx.threadId,
-      registrations: args.registrations.map((reg) => ({
-        fileId:
-          reg.fileId as unknown as import("../_generated/dataModel").Id<"uploadedFiles">,
-        assignedName: reg.assignedName,
-        action: reg.action,
-      })),
-    });
+    try {
+      if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
+      console.log(`[handle_files] Processing ${args.registrations.length} file(s)`);
+      const results = await ctx.runMutation(internal.files.db.registerFiles, {
+        threadId: ctx.threadId,
+        registrations: args.registrations.map((reg) => ({
+          fileId:
+            reg.fileId as unknown as import("../_generated/dataModel").Id<"uploadedFiles">,
+          assignedName: reg.assignedName,
+          action: reg.action,
+        })),
+      });
 
-    return (
-      `Processed ${results.length} files:\n` +
-      results
-        .map((r: FileRegistrationResult) => {
-          if ("success" in r && r.success) {
-            return `- ID: ${r.id} -> ${"action" in r ? r.action : "registered"} ${"name" in r && r.name ? `as '${String(r.name)}'` : ""}`;
-          } else if ("error" in r) {
-            return `- ID: ${r.id} -> failed: ${String(r.error)}`;
-          }
-          return `- ID: ${r.id} -> processed`;
-        })
-        .join("\n")
-    );
+      console.log(`[handle_files] Processed ${results.length} file(s)`);
+      return (
+        `Processed ${results.length} files:\n` +
+        results
+          .map((r: FileRegistrationResult) => {
+            if ("success" in r && r.success) {
+              return `- ID: ${r.id} -> ${"action" in r ? r.action : "registered"} ${"name" in r && r.name ? `as '${String(r.name)}'` : ""}`;
+            } else if ("error" in r) {
+              return `- ID: ${r.id} -> failed: ${String(r.error)}`;
+            }
+            return `- ID: ${r.id} -> processed`;
+          })
+          .join("\n")
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[handle_files] Error:`, msg);
+      return `Error processing files: ${msg}`;
+    }
   },
 });
 
@@ -285,25 +345,34 @@ export const query_sessions = createTool({
       ),
   }),
   execute: async (ctx, args): Promise<string> => {
-    const result = (await ctx.runAction(
-      internal.sessions.sessionManager.getAllSessionsWithInfo,
-      {},
-    )) as SessionQueryResult;
+    try {
+      console.log(`[query_sessions] Query: ${args.prompt.slice(0, 80)}...`);
+      const result = (await ctx.runAction(
+        internal.sessions.sessionManager.getAllSessionsWithInfo,
+        {},
+      )) as SessionQueryResult;
 
-    if (!result.success) {
-      return `Error: ${result.error || "Failed to fetch sessions"}`;
+      if (!result.success) {
+        console.error(`[query_sessions] Failed to fetch sessions: ${result.error}`);
+        return `Error: ${result.error || "Failed to fetch sessions"}`;
+      }
+
+      const sessions = result.sessions || [];
+      console.log(`[query_sessions] Found ${sessions.length} sessions, spawning sub-agent`);
+      const prompt =
+        args.prompt ||
+        "Show me my sessions and let me know if any need attention.";
+
+      if (!ctx.threadId)
+        throw new Error("Tool must be called within a thread context.");
+
+      const model = await resolveLanguageModel(ctx, ctx.threadId);
+      return spawnSessionManagerAgent(ctx, sessions, prompt, ctx.threadId, model);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[query_sessions] Error:`, msg);
+      return `Error querying sessions: ${msg}`;
     }
-
-    const sessions = result.sessions || [];
-    const prompt =
-      args.prompt ||
-      "Show me my sessions and let me know if any need attention.";
-
-    if (!ctx.threadId)
-      throw new Error("Tool must be called within a thread context.");
-
-    const model = await resolveLanguageModel(ctx, ctx.threadId);
-    return spawnSessionManagerAgent(ctx, sessions, prompt, ctx.threadId, model);
   },
 });
 
@@ -312,12 +381,12 @@ export const query_sessions = createTool({
  */
 export const manage_sessions = createTool({
   description:
-    "Bulk manage Jules sessions. REGISTER: acknowledge unregistered sessions. TRACK: add to dashboard. ARCHIVE: remove tracked sessions from dashboard (untrack). CONFIGURE: reconfigure approval/verbosity preferences.",
+    "Bulk manage Jules sessions. REGISTER: acknowledge unregistered sessions. TRACK: add to my list. ARCHIVE: remove tracked sessions from my list (untrack). CONFIGURE: reconfigure approval/verbosity preferences.",
   inputSchema: z.object({
     action: z
       .enum(["REGISTER", "TRACK", "ARCHIVE", "CONFIGURE"])
       .describe(
-        "REGISTER: Acknowledge unregistered sessions. TRACK: Add to dashboard. ARCHIVE: Remove tracked sessions from dashboard (untrack). CONFIGURE: Reconfigure approval/verbosity preferences.",
+        "REGISTER: Acknowledge unregistered sessions. TRACK: Add to my list. ARCHIVE: Remove tracked sessions from my list (untrack). CONFIGURE: Reconfigure approval/verbosity preferences.",
       ),
     selection: z
       .object({
@@ -336,7 +405,7 @@ export const manage_sessions = createTool({
           ])
           .optional()
           .describe(
-            "Target groups: 'unregistered' (not yet acknowledged), 'tracked' (in dashboard), 'active' (non-terminal states), 'needs_attention' (awaiting plan approval, user feedback, or paused), 'terminal' (completed/failed), or 'all'.",
+            "Target groups: 'unregistered' (not yet acknowledged), 'tracked' (in my list), 'active' (non-terminal states), 'needs_attention' (awaiting plan approval, user feedback, or paused), 'terminal' (completed/failed), or 'all'.",
           ),
         state: z
           .array(
@@ -379,89 +448,102 @@ export const manage_sessions = createTool({
       ),
   }),
   execute: async (ctx, args): Promise<string> => {
-    const result = (await ctx.runAction(
-      internal.sessions.sessionManager.getAllSessionsBasic,
-      {},
-    )) as SessionQueryResult;
+    try {
+      console.log(`[manage_sessions] Action: ${args.action}, selection: ${JSON.stringify({ ids: args.selection.ids?.length, target: args.selection.target })}`);
+      const result = (await ctx.runAction(
+        internal.sessions.sessionManager.getAllSessionsBasic,
+        {},
+      )) as SessionQueryResult;
 
-    if (!result.success)
-      return "Error: Failed to fetch sessions for bulk operation.";
-
-    const sessions = result.sessions;
-    let targetIds: string[] = args.selection.ids || [];
-
-    if (args.selection.target) {
-      let filtered = sessions;
-
-      // Apply state filter
-      if (args.selection.state && !args.selection.state.includes("all")) {
-        const states = args.selection.state.map((s) => s.toUpperCase());
-        filtered = filtered.filter((s: SessionInfo) => {
-          const normalized = normalizeState(s.state);
-          return states.includes(normalized);
-        });
+      if (!result.success) {
+        console.error(`[manage_sessions] Failed to fetch sessions`);
+        return "Error: Failed to fetch sessions for bulk operation.";
       }
 
-      // Apply time filter
-      if (args.selection.since && args.selection.since !== "all") {
-        const sinceHours: Record<string, number> = {
-          "1h": 1,
-          "6h": 6,
-          "24h": 24,
-          "7d": 168,
-          "30d": 720,
-        };
-        const hours = sinceHours[args.selection.since] || 0;
-        const cutoff = Date.now() - hours * 60 * 60 * 1000;
-        filtered = filtered.filter((s: SessionInfo) => {
-          const created = s.lastActivity
-            ? new Date(s.lastActivity).getTime()
-            : 0;
-          return created >= cutoff;
-        });
-      }
+      const sessions = result.sessions;
+      let targetIds: string[] = args.selection.ids || [];
 
-      // Apply target group filter
-      const groupFiltered = filtered.filter((s: SessionInfo) => {
-        const st = normalizeState(s.state);
-        switch (args.selection.target) {
-          case "unregistered":
-            return !s.acknowledged;
-          case "tracked":
-            return s.inDashboard;
-          case "active":
-            return st !== "COMPLETED" && st !== "FAILED";
-          case "needs_attention":
-            return needsUserAction(st);
-          case "terminal":
-            return st === "COMPLETED" || st === "FAILED";
-          case "all":
-            return true;
-          default:
-            return false;
+      if (args.selection.target) {
+        let filtered = sessions;
+
+        // Apply state filter
+        if (args.selection.state && !args.selection.state.includes("all")) {
+          const states = args.selection.state.map((s) => s.toUpperCase());
+          filtered = filtered.filter((s: SessionInfo) => {
+            const normalized = normalizeState(s.state);
+            return states.includes(normalized);
+          });
         }
+
+        // Apply time filter
+        if (args.selection.since && args.selection.since !== "all") {
+          const sinceHours: Record<string, number> = {
+            "1h": 1,
+            "6h": 6,
+            "24h": 24,
+            "7d": 168,
+            "30d": 720,
+          };
+          const hours = sinceHours[args.selection.since] || 0;
+          const cutoff = Date.now() - hours * 60 * 60 * 1000;
+          filtered = filtered.filter((s: SessionInfo) => {
+            const created = s.lastActivity
+              ? new Date(s.lastActivity).getTime()
+              : 0;
+            return created >= cutoff;
+          });
+        }
+
+        // Apply target group filter
+        const groupFiltered = filtered.filter((s: SessionInfo) => {
+          const st = normalizeState(s.state);
+          switch (args.selection.target) {
+            case "unregistered":
+              return !s.acknowledged;
+            case "tracked":
+              return s.inDashboard;
+            case "active":
+              return st !== "COMPLETED" && st !== "FAILED";
+            case "needs_attention":
+              return needsUserAction(st);
+            case "terminal":
+              return st === "COMPLETED" || st === "FAILED";
+            case "all":
+              return true;
+            default:
+              return false;
+          }
+        });
+        const groupIds = groupFiltered.map((s: SessionInfo) => s.julesSessionId);
+        targetIds = Array.from(new Set([...targetIds, ...groupIds]));
+      }
+
+      if (targetIds.length === 0) {
+        console.log(`[manage_sessions] No sessions matched selection`);
+        return "No sessions matched the selection.";
+      }
+
+      const updates: SessionUpdatePatch = {};
+      if (args.action === "REGISTER") updates.acknowledged = true;
+      if (args.action === "TRACK") {
+        updates.inDashboard = true;
+        updates.acknowledged = true;
+      }
+      if (args.action === "ARCHIVE") updates.inDashboard = false;
+      if (args.prefs) updates.prefs = args.prefs;
+
+      console.log(`[manage_sessions] Performing ${args.action} on ${targetIds.length} session(s)`);
+      await ctx.runMutation(internal.sessions.db.bulkUpdateSessions, {
+        julesSessionIds: targetIds,
+        updates,
       });
-      const groupIds = groupFiltered.map((s: SessionInfo) => s.julesSessionId);
-      targetIds = Array.from(new Set([...targetIds, ...groupIds]));
+
+      return `Successfully performed ${args.action} on ${targetIds.length} sessions.`;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[manage_sessions] Error:`, msg);
+      return `Error managing sessions: ${msg}`;
     }
-
-    if (targetIds.length === 0) return "No sessions matched the selection.";
-
-    const updates: SessionUpdatePatch = {};
-    if (args.action === "REGISTER") updates.acknowledged = true;
-    if (args.action === "TRACK") {
-      updates.inDashboard = true;
-      updates.acknowledged = true;
-    }
-    if (args.action === "ARCHIVE") updates.inDashboard = false;
-    if (args.prefs) updates.prefs = args.prefs;
-
-    await ctx.runMutation(internal.sessions.db.bulkUpdateSessions, {
-      julesSessionIds: targetIds,
-      updates,
-    });
-
-    return `Successfully performed ${args.action} on ${targetIds.length} sessions.`;
   },
 });
 
@@ -495,102 +577,131 @@ export const fetch_session_files = createTool({
       ),
   }),
   execute: async (ctx, args): Promise<string> => {
-    const outputs = await ctx.runQuery(internal.sessions.db.getSessionOutputs, {
-      julesSessionId: args.julesSessionId,
-    });
+    try {
+      const filePaths = Array.isArray(args.filePath) ? args.filePath : [args.filePath];
+      console.log(`[fetch_session_files] Fetching ${filePaths.length} file(s) from session ${args.julesSessionId}, mode=${args.mode}`);
 
-    const latestFiles = new Map<string, string>();
-    for (const out of outputs) {
-      if (out && out.type === "changeSet" && out.extractedFiles) {
-        for (const file of out.extractedFiles) {
-          if (file.content) {
-            latestFiles.set(file.path, file.content);
+      const outputs = await ctx.runQuery(internal.sessions.db.getSessionOutputs, {
+        julesSessionId: args.julesSessionId,
+      });
+
+      console.log(`[fetch_session_files] Got ${outputs.length} output record(s) for session ${args.julesSessionId}`);
+
+      const latestFiles = new Map<string, string>();
+      for (const out of outputs) {
+        if (out && out.type === "changeSet" && out.extractedFiles) {
+          for (const file of out.extractedFiles) {
+            if (file.content) {
+              latestFiles.set(file.path, file.content);
+            }
           }
         }
       }
-    }
 
-    if (latestFiles.size === 0) {
-      return `Error: No files found in session '${args.julesSessionId}'.`;
-    }
+      console.log(`[fetch_session_files] Found ${latestFiles.size} unique file(s) in session outputs`);
 
-    const filesToProcess: { path: string; content: string }[] = [];
-    const pathsToFetch = Array.isArray(args.filePath)
-      ? args.filePath
-      : [args.filePath];
+      if (latestFiles.size === 0) {
+        console.error(`[fetch_session_files] No files found in session '${args.julesSessionId}'`);
+        return `Error: No files found in session '${args.julesSessionId}'.`;
+      }
 
-    const notFound: string[] = [];
-    for (const path of pathsToFetch) {
-      if (!latestFiles.has(path)) {
-        notFound.push(path);
-      } else {
-        filesToProcess.push({
-          path,
-          content: latestFiles.get(path)!,
+      const filesToProcess: { path: string; content: string }[] = [];
+
+      const notFound: string[] = [];
+      for (const path of filePaths) {
+        if (!latestFiles.has(path)) {
+          notFound.push(path);
+        } else {
+          filesToProcess.push({
+            path,
+            content: latestFiles.get(path)!,
+          });
+        }
+      }
+
+      if (notFound.length > 0) {
+        console.error(`[fetch_session_files] Files not found: ${notFound.join(", ")}`);
+        return `Error: File(s) not found in session '${args.julesSessionId}': ${notFound.join(", ")}`;
+      }
+
+      if (args.mode === "send") {
+        const sessionDoc = await ctx.runQuery(
+          internal.sessions.db.getSessionByJulesId,
+          { julesSessionId: args.julesSessionId },
+        );
+        if (!sessionDoc) {
+          console.error(`[fetch_session_files] Session doc not found for ${args.julesSessionId}`);
+          return "Error: Session not found.";
+        }
+
+        const chatId = await ctx.runQuery(internal.users.db.getChatIdForThread, {
+          threadId: sessionDoc.threadId,
         });
+        if (!chatId) {
+          console.error(`[fetch_session_files] No Telegram chat ID for thread ${sessionDoc.threadId}`);
+          return "Error: No Telegram Chat ID found for this session.";
+        }
+
+        await ctx.runAction(internal.sessions.actions.sendTelegramMessage, {
+          threadId: ctx.threadId!,
+          message: `Uploading...`,
+        });
+
+        if (args.asZip && filesToProcess.length > 0) {
+          const zipName = `${args.julesSessionId.slice(0, 8)}-files.zip`;
+          console.log(`[fetch_session_files] Sending ${filesToProcess.length} file(s) as ZIP '${zipName}' to chat ${chatId}`);
+          const sendRes = await ctx.runAction(
+            internal.tools.nodeActions.sendTelegramZipAction,
+            { telegramChatId: chatId, files: filesToProcess, filename: zipName },
+          );
+          if (!sendRes.success) {
+            console.error(`[fetch_session_files] ZIP send failed: ${sendRes.error}`);
+            return `Error sending ZIP: ${sendRes.error}`;
+          }
+          console.log(`[fetch_session_files] ZIP sent successfully`);
+          return `Successfully sent ${filesToProcess.length} file(s) as a ZIP archive.`;
+        }
+
+        for (const file of filesToProcess) {
+          const filename = file.path.split("/").pop() || file.path;
+          console.log(`[fetch_session_files] Sending file '${filename}' to chat ${chatId}`);
+          const sendRes = await ctx.runAction(
+            internal.tools.nodeActions.sendTelegramDocumentAction,
+            {
+              telegramChatId: chatId,
+              fileContent: file.content,
+              filename,
+            },
+          );
+          if (!sendRes.success) {
+            console.error(`[fetch_session_files] File send failed for '${file.path}': ${sendRes.error}`);
+            return `Error sending file '${file.path}': ${sendRes.error}`;
+          }
+        }
+        console.log(`[fetch_session_files] Successfully sent ${filesToProcess.length} file(s)`);
+        return `Successfully sent ${filesToProcess.length} file(s) to the user.`;
       }
-    }
 
-    if (notFound.length > 0) {
-      return `Error: File(s) not found in session '${args.julesSessionId}': ${notFound.join(", ")}`;
-    }
-
-    if (args.mode === "send") {
-      const sessionDoc = await ctx.runQuery(
-        internal.sessions.db.getSessionByJulesId,
-        { julesSessionId: args.julesSessionId },
-      );
-      if (!sessionDoc) return "Error: Session not found.";
-
-      const chatId = await ctx.runQuery(internal.users.db.getChatIdForThread, {
-        threadId: sessionDoc.threadId,
-      });
-      if (!chatId) return "Error: No Telegram Chat ID found for this session.";
-
-      await ctx.runAction(internal.sessions.actions.sendTelegramMessage, {
-        threadId: ctx.threadId!,
-        message: `Uploading...`,
-      });
-
-      if (args.asZip && filesToProcess.length > 0) {
-        const zipName = `${args.julesSessionId.slice(0, 8)}-files.zip`;
-        const sendRes = await ctx.runAction(
-          internal.tools.nodeActions.sendTelegramZipAction,
-          { telegramChatId: chatId, files: filesToProcess, filename: zipName },
-        );
-        if (!sendRes.success) return `Error sending ZIP: ${sendRes.error}`;
-        return `Successfully sent ${filesToProcess.length} file(s) as a ZIP archive.`;
-      }
-
+      let combinedContent = "";
       for (const file of filesToProcess) {
-        const filename = file.path.split("/").pop() || file.path;
-        const sendRes = await ctx.runAction(
-          internal.tools.nodeActions.sendTelegramDocumentAction,
-          {
-            telegramChatId: chatId,
-            fileContent: file.content,
-            filename,
-          },
-        );
-        if (!sendRes.success)
-          return `Error sending file '${file.path}': ${sendRes.error}`;
+        combinedContent += `[FILE: ${file.path}]\n${file.content}\n\n`;
       }
-      return `Successfully sent ${filesToProcess.length} file(s) to the user.`;
-    }
 
-    let combinedContent = "";
-    for (const file of filesToProcess) {
-      combinedContent += `[FILE: ${file.path}]\n${file.content}\n\n`;
-    }
+      if (args.mode === "show") {
+        return (
+          `Here are the requested file(s):\n\n${combinedContent}\n` +
+          `To show this to the user, you MUST use the 'message_user' tool and wrap the code with Telegram HTML:\n` +
+          `<pre><code class="language-typescript">\n// content\n</code></pre>`
+        );
+      }
 
-    if (args.mode === "show") {
-      return (
-        `Here are the requested file(s):\n\n${combinedContent}\n` +
-        `To show this to the user, you MUST use the 'message_user' tool and wrap the code with Telegram HTML:\n` +
-        `<pre><code class="language-typescript">\n// content\n</code></pre>`
-      );
+      console.log(`[fetch_session_files] Returning ${filesToProcess.length} file(s) content for read mode`);
+      return combinedContent.trim();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      console.error(`[fetch_session_files] Unexpected error for session ${args.julesSessionId}:`, msg, stack);
+      return `Error fetching session files: ${msg}`;
     }
-
-    return combinedContent.trim();
   },
 });

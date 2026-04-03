@@ -28,12 +28,20 @@ export const exa_search = createTool({
     const apiKey = await getExaApiKey(ctx);
     if (!apiKey) return "NOTE: Web search is currently disabled (Exa API key missing). I will answer using my internal knowledge and provided file context.";
     
-    const exa = new Exa(apiKey);
-    const result = await exa.search(args.query, {
-      numResults: Math.min(args.numResults, 10),
-      useAutoprompt: true,
-    });
-    return result.results;
+    try {
+      console.log(`[exa_search] Searching: "${args.query.slice(0, 80)}..." (${args.numResults} results)`);
+      const exa = new Exa(apiKey);
+      const result = await exa.search(args.query, {
+        numResults: Math.min(args.numResults, 10),
+        useAutoprompt: true,
+      });
+      console.log(`[exa_search] Got ${result.results.length} results`);
+      return result.results;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[exa_search] Error:`, msg);
+      return `Error searching: ${msg}`;
+    }
   },
 });
 
@@ -49,13 +57,21 @@ export const exa_get_contents = createTool({
     const apiKey = await getExaApiKey(ctx);
     if (!apiKey) return "NOTE: Web search is currently disabled (Exa API key missing). I cannot retrieve specific web content.";
 
-    const exa = new Exa(apiKey);
-    const result = await exa.getContents(args.urls, { text: true });
-    return result.results.map(r => ({
-      title: r.title,
-      url: r.url,
-      content: r.text ? r.text.substring(0, 5000) : "No content available.",
-    }));
+    try {
+      console.log(`[exa_get_contents] Fetching ${args.urls.length} URL(s)`);
+      const exa = new Exa(apiKey);
+      const result = await exa.getContents(args.urls, { text: true });
+      console.log(`[exa_get_contents] Got ${result.results.length} result(s)`);
+      return result.results.map(r => ({
+        title: r.title,
+        url: r.url,
+        content: r.text ? r.text.substring(0, 5000) : "No content available.",
+      }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[exa_get_contents] Error:`, msg);
+      return `Error fetching contents: ${msg}`;
+    }
   },
 });
 
@@ -72,9 +88,17 @@ export const exa_find_similar = createTool({
     const apiKey = await getExaApiKey(ctx);
     if (!apiKey) return "NOTE: Web search is currently disabled (Exa API key missing). I cannot find similar pages.";
 
-    const exa = new Exa(apiKey);
-    const result = await exa.findSimilar(args.url, { numResults: args.numResults });
-    return result.results;
+    try {
+      console.log(`[exa_find_similar] Finding similar to: ${args.url} (${args.numResults} results)`);
+      const exa = new Exa(apiKey);
+      const result = await exa.findSimilar(args.url, { numResults: args.numResults });
+      console.log(`[exa_find_similar] Got ${result.results.length} results`);
+      return result.results;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[exa_find_similar] Error:`, msg);
+      return `Error finding similar: ${msg}`;
+    }
   },
 });
 
@@ -89,6 +113,7 @@ const researchInstructions = (query: string, mode: "quick" | "deep", injectedCon
 
 async function runResearchAgent(ctx: any, query: string, mode: "quick" | "deep", languageModel: any, injectedContext?: string): Promise<string> {
   const maxSteps = mode === "quick" ? 7 : 28;
+  console.log(`[research] Starting ${mode} research agent for: "${query.slice(0, 60)}..." (maxSteps=${maxSteps})`);
 
   const { thread } = await new Agent(components.agent, {
     name: "Research Assistant",
@@ -98,6 +123,7 @@ async function runResearchAgent(ctx: any, query: string, mode: "quick" | "deep",
   });
 
   const threadId = (thread as any).threadId;
+  console.log(`[research] Created research thread: ${threadId}`);
 
   if (mode === "deep") {
     const lastSent = await ctx.runQuery(internal.users.db.getLastSearchingSent, { threadId: ctx.threadId });
@@ -136,8 +162,10 @@ async function runResearchAgent(ctx: any, query: string, mode: "quick" | "deep",
       ? `\n\n[research may be incomplete — consider using deep research for more]`
       : "";
 
+    console.log(`[research] Completed ${mode} research for: "${query.slice(0, 60)}..."`);
     return `### Research/Analysis: "${query}"\n\n${result.text}${suffix}`;
   } catch (error: any) {
+    console.error(`[research] Error during ${mode} research:`, error.message || String(error));
     return `Error during research: ${error.message || String(error)}`;
   }
 }
@@ -168,10 +196,12 @@ export const research = createTool({
     ).optional().describe("Files to inject into research context. Can mix session files and uploaded files."),
   }),
   execute: async (ctx, args) => {
-    if (!ctx.threadId) throw new Error("Tool must be called within a thread context.");
-    
-    const foundFiles: { name: string; content: string }[] = [];
-    const missingFiles: string[] = [];
+    try {
+      if (!ctx.threadId) throw new Error("Tool must be called within a thread context.");
+      console.log(`[research] Starting research: "${args.query.slice(0, 80)}..." (mode=${args.mode})`);
+      
+      const foundFiles: { name: string; content: string }[] = [];
+      const missingFiles: string[] = [];
 
     // Pre-validate and fetch all files
     if (args.files && args.files.length > 0) {
@@ -241,6 +271,7 @@ export const research = createTool({
     }
 
     // Run research
+    console.log(`[research] Running ${args.mode} research with ${foundFiles.length} file(s) in context`);
     const researchResult = await runResearchAgent(
       ctx, 
       args.query, 
@@ -253,10 +284,16 @@ export const research = createTool({
     let response = researchResult;
     
     if (missingFiles.length > 0) {
+      console.warn(`[research] ${missingFiles.length} file(s) missing: ${missingFiles.join(", ")}`);
       const warning = `\n\n⚠️ WARNING: The following files were not found and were skipped:\n${missingFiles.map(f => `- ${f}`).join("\n")}\n\nResearch completed with ${foundFiles.length} available file(s).`;
       response = warning + "\n\n" + response;
     }
 
     return response;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[research] Error:`, msg);
+      return `Error during research: ${msg}`;
+    }
   },
 });

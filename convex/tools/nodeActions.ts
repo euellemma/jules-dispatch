@@ -41,14 +41,18 @@ export const sendTelegramDocumentAction = internalAction({
   },
   handler: async (ctx, args) => {
     try {
+      console.log(`[sendTelegramDocument] Sending '${args.filename}' to chat ${args.telegramChatId} (${args.fileContent.length} chars)`);
       await ctx.runAction(internal.api.telegram.sendChatDocument, {
         chatId: args.telegramChatId,
         fileContent: args.fileContent,
         filename: args.filename,
       });
+      console.log(`[sendTelegramDocument] Sent '${args.filename}' successfully`);
       return { success: true };
     } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[sendTelegramDocument] Failed to send '${args.filename}':`, msg);
+      return { success: false, error: msg };
     }
   },
 });
@@ -61,20 +65,25 @@ export const sendTelegramZipAction = internalAction({
   },
   handler: async (ctx, args) => {
     try {
+      console.log(`[sendTelegramZip] Creating ZIP '${args.filename}' with ${args.files.length} file(s) for chat ${args.telegramChatId}`);
       const zip = new JSZip();
       for (const file of args.files) {
         zip.file(file.path, file.content);
       }
       const zipBuffer = await zip.generateAsync({ type: "nodebuffer" });
+      console.log(`[sendTelegramZip] ZIP generated (${zipBuffer.length} bytes), sending...`);
 
       await ctx.runAction(internal.api.telegram.sendChatDocument, {
         chatId: args.telegramChatId,
         fileContent: zipBuffer.toString("base64"),
         filename: args.filename,
       });
+      console.log(`[sendTelegramZip] ZIP '${args.filename}' sent successfully`);
       return { success: true };
     } catch (err: unknown) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[sendTelegramZip] Failed to send '${args.filename}':`, msg);
+      return { success: false, error: msg };
     }
   },
 });
