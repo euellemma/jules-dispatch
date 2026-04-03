@@ -264,6 +264,7 @@ export const cycleUserThread = internalMutation({
 
 /**
  * Completely wipe all data for a user except their providerConfig.
+ * Deletes ALL data from tasks, julesSessions, sessionOutputs, observationalMemory, and uploadedFiles.
  */
 export const nukeUserData = internalMutation({
   args: { telegramChatId: v.string() },
@@ -278,17 +279,31 @@ export const nukeUserData = internalMutation({
     // We'll return IDs to be deleted from storage/external via an action later
     const oldThreadId = user.threadId;
 
-    // 1. Delete internal tables
-    const tasks = await ctx.db.query("tasks").withIndex("by_thread", q => q.eq("threadId", oldThreadId)).collect();
-    for (const t of tasks) await ctx.db.delete(t._id);
+    // 1. Delete ALL tasks (single-user setup - delete everything)
+    const allTasks = await ctx.db.query("tasks").collect();
+    for (const t of allTasks) await ctx.db.delete(t._id);
 
-    const sessions = await ctx.db.query("julesSessions").withIndex("by_threadId", q => q.eq("threadId", oldThreadId)).collect();
-    for (const s of sessions) await ctx.db.delete(s._id);
+    // 2. Delete ALL julesSessions and collect their IDs for sessionOutputs cleanup
+    const allSessions = await ctx.db.query("julesSessions").collect();
+    const sessionIds = allSessions.map(s => s.julesSessionId);
+    for (const s of allSessions) await ctx.db.delete(s._id);
 
-    const memory = await ctx.db.query("observationalMemory").withIndex("by_threadId", q => q.eq("threadId", oldThreadId)).collect();
-    for (const m of memory) await ctx.db.delete(m._id);
+    // 3. Delete ALL sessionOutputs for the deleted sessions
+    const allSessionOutputs = await ctx.db.query("sessionOutputs").collect();
+    for (const so of allSessionOutputs) {
+      if (sessionIds.includes(so.julesSessionId)) {
+        await ctx.db.delete(so._id);
+      }
+    }
 
-    // 2. Cycle thread
+    // 4. Delete ALL observationalMemory (single-user setup)
+    const allMemory = await ctx.db.query("observationalMemory").collect();
+    for (const m of allMemory) await ctx.db.delete(m._id);
+
+    // Note: uploadedFiles are deleted by deleteAllFiles in the action
+    // so storage can also be cleaned up
+
+    // 5. Cycle thread
     const newThreadId = await createThread(ctx, components.agent);
     await ctx.db.patch(user._id, { 
       threadId: newThreadId,

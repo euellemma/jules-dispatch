@@ -61,10 +61,8 @@ export const nukeUserAction = internalAction({
 
     if (!oldThreadId) return;
 
-    // 2. Delete files from storage
-    const storageIds = (await ctx.runMutation(internal.files.db.deleteFilesForThread, {
-      threadId: oldThreadId,
-    })) as any[];
+    // 2. Delete ALL files from storage (single-user setup)
+    const storageIds = (await ctx.runMutation(internal.files.db.deleteAllFiles, {})) as any[];
 
     for (const sid of storageIds) {
       await ctx.storage.delete(sid);

@@ -122,3 +122,17 @@ export const deleteFilesForThread = internalMutation({
     return storageIds;
   }
 });
+
+export const deleteAllFiles = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const files = await ctx.db.query("uploadedFiles").collect();
+    
+    const storageIds = [];
+    for (const f of files) {
+      storageIds.push(f.storageId);
+      await ctx.db.delete(f._id);
+    }
+    return storageIds;
+  }
+});

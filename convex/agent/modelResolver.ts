@@ -14,8 +14,6 @@ interface ProviderConfig {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function resolveLanguageModel(ctx: any, threadId: string): Promise<LanguageModel> {
-  console.log("[resolveLanguageModel] Starting resolution for threadId:", threadId);
-
   const user = await ctx.runQuery(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (internal as any).users.db.getProviderConfigByThreadId,
@@ -37,28 +35,24 @@ export async function resolveLanguageModel(ctx: any, threadId: string): Promise<
   const { endpoint, model, apiKey, sdkType } = user.providerConfig;
 
   if (sdkType === "anthropic") {
-    console.log("[resolveLanguageModel] Instantiating Anthropic SDK");
     const anthropic = createAnthropic({
       baseURL: endpoint,
       apiKey: apiKey,
     });
     return anthropic(model);
   } else if (sdkType === "google") {
-    console.log("[resolveLanguageModel] Instantiating Google AI SDK");
     const google = createGoogleGenerativeAI({
       apiKey: apiKey,
       baseURL: endpoint,
     });
     return google(model);
   } else if (sdkType === "openai") {
-    console.log("[resolveLanguageModel] Instantiating OpenAI SDK");
     const openai = createOpenAI({
       baseURL: endpoint,
       apiKey: apiKey,
     });
     return openai(model);
   } else {
-    console.log("[resolveLanguageModel] Instantiating OpenAI-Compatible SDK");
     const provider = createOpenAICompatible({
       name: "custom",
       baseURL: endpoint,

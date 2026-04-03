@@ -201,15 +201,14 @@ export const getBulkSessionOutputs = internalQuery({
   args: { julesSessionIds: v.array(v.string()) },
   handler: async (ctx, args) => {
     const allOutputs = await ctx.db.query("sessionOutputs").collect();
-    const map = new Map<string, typeof allOutputs>();
+    const result: Record<string, typeof allOutputs> = {};
     for (const o of allOutputs) {
       if (args.julesSessionIds.includes(o.julesSessionId)) {
-        const arr = map.get(o.julesSessionId) || [];
-        arr.push(o);
-        map.set(o.julesSessionId, arr);
+        result[o.julesSessionId] ??= [];
+        result[o.julesSessionId]!.push(o);
       }
     }
-    return map;
+    return result;
   },
 });
 

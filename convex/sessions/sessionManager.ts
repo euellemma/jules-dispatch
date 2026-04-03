@@ -191,7 +191,7 @@ export const getAllSessionsWithInfo = internalAction({
     const dbMap = new Map(dbSessions.map((s: JulesSessionDoc) => [s.julesSessionId, s]));
 
     // Batch PR metadata query (eliminate N+1)
-    let outputsMap = new Map<string, SessionOutputDoc[]>();
+    let outputsMap: Record<string, SessionOutputDoc[]> = {};
     try {
       const sessionIds = julesSessions.map((js: JulesApiSession) => js.id);
       if (sessionIds.length > 0) {
@@ -205,7 +205,7 @@ export const getAllSessionsWithInfo = internalAction({
 
     const sessionsWithMetadata: SessionInfo[] = julesSessions.map((js: JulesApiSession) => {
       const db = dbMap.get(js.id);
-      const outputs = outputsMap.get(js.id) || [];
+      const outputs = outputsMap[js.id] || [];
       const prMetadata = outputs
         .filter((o: SessionOutputDoc) => o.type === "pullRequest")
         .map((o: SessionOutputDoc) => ({
@@ -268,6 +268,12 @@ export const getSessionDetails = internalAction({
         approval: v.union(v.literal("auto"), v.literal("confirm"), v.literal("strict")),
         verbosity: v.union(v.literal("silent"), v.literal("milestones"), v.literal("full")),
       })),
+      lastActivity: v.optional(v.string()),
+      createTimeMs: v.optional(v.number()),
+      prMetadata: v.optional(v.array(v.object({
+        title: v.optional(v.string()),
+        description: v.optional(v.string()),
+      }))),
     }))),
   },
   handler: async (ctx, args): Promise<SessionQueryResult> => {

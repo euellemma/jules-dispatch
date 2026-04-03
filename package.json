@@ -17,6 +17,9 @@
   "scripts": {
     "dev": "npm run dev:convex",
     "dev:convex": "npx convex dev",
+    "dev:logged": "node scripts/logs.js",
+    "logs": "node scripts/logs.js",
+    "logs:prod": "node scripts/logs.js -- --prod",
     "dev:web": "cd web && npm run dev",
     "build:cli": "tsc --project tsconfig.cli.json",
     "build:web": "cd web && npm run build",

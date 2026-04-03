@@ -278,8 +278,8 @@ export const query_sessions = createTool({
   description:
     "Browse, search, inspect, and manage the user's Jules sessions. Discovers sessions from the Jules API on-demand. Spawns a session manager sub-agent with filtering support (time, state, fuzzy search).",
   inputSchema: z.object({
-    prompt: z.string().optional().describe(
-      "What the user wants to do — e.g. 'find active sessions from today', 'show failed sessions from last week', 'track all sessions about auth', 'register all unregistered sessions'. If omitted, defaults to 'Show me my sessions and let me know if any need attention.'",
+    prompt: z.string().describe(
+      "What the user wants to do — e.g. 'find active sessions from today', 'show failed sessions from last week', 'track all sessions about auth', 'register all unregistered sessions'.",
     ),
   }),
   execute: async (ctx, args): Promise<string> => {
@@ -306,10 +306,10 @@ export const query_sessions = createTool({
  * manage_sessions — Bulk manage Jules sessions.
  */
 export const manage_sessions = createTool({
-  description: "Bulk manage Jules sessions. REGISTER: acknowledge unregistered sessions. TRACK: add to dashboard. ARCHIVE: remove tracked sessions from dashboard (untrack). CONFIGURE: update preferences.",
+  description: "Bulk manage Jules sessions. REGISTER: acknowledge unregistered sessions. TRACK: add to dashboard. ARCHIVE: remove tracked sessions from dashboard (untrack). CONFIGURE: reconfigure approval/verbosity preferences.",
   inputSchema: z.object({
     action: z.enum(["REGISTER", "TRACK", "ARCHIVE", "CONFIGURE"])
-      .describe("REGISTER: Acknowledge unregistered sessions. TRACK: Add to dashboard. ARCHIVE: Remove tracked sessions from dashboard (untrack). CONFIGURE: Update prefs."),
+      .describe("REGISTER: Acknowledge unregistered sessions. TRACK: Add to dashboard. ARCHIVE: Remove tracked sessions from dashboard (untrack). CONFIGURE: Reconfigure approval/verbosity preferences."),
     selection: z.object({
       ids: z.array(z.string()).optional().describe("Specific session IDs to target."),
       target: z.enum(["unregistered", "active", "needs_attention", "terminal", "tracked", "all"]).optional()
@@ -325,7 +325,7 @@ export const manage_sessions = createTool({
     prefs: z.object({
       approval: z.enum(["auto", "confirm", "strict"]).optional(),
       verbosity: z.enum(["silent", "milestones", "full"]).optional(),
-    }).optional().describe("Optional bulk update for preferences (approval/verbosity)."),
+    }).optional().describe("Used with CONFIGURE action to reconfigure sessions' approval/verbosity preferences."),
   }),
   execute: async (ctx, args): Promise<string> => {
     const result = await ctx.runAction(

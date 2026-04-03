@@ -357,16 +357,16 @@ async function handleTelegramCommand(
     case "/reset":
       await telegramApiCall("sendMessage", {
         chat_id: chatId,
-        text: "⚠️ <b>NUCLEAR RESET</b>\n\nThis will permanently delete ALL observational memory, tasks, and file history. Your API keys will be kept.\n\n<b>Are you absolutely sure?</b>",
+        text: "⚠️ <b>Reset All Data</b>\n\nThis will permanently delete ALL observational memory, tasks, and file history. Your API keys will be kept.\n\nAre you sure?",
         parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
             [
               {
-                text: "☢️ Yes, Nuke Everything",
+                text: "Yes, reset everything",
                 callback_data: "nuke_confirm",
               },
-              { text: "❌ Cancel", callback_data: "nuke_cancel" },
+              { text: "Cancel", callback_data: "nuke_cancel" },
             ],
           ],
         },

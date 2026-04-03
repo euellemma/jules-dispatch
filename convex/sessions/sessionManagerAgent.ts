@@ -110,7 +110,7 @@ Use this when the user asks to "find", "list", or "show" sessions.
 - REGISTER: Acknowledge unregistered sessions (marks them as known)
 - TRACK: Add sessions to the dashboard for active monitoring
 - ARCHIVE: Remove tracked sessions from the dashboard (untrack). Only works on tracked sessions.
-- CONFIGURE: Update approval/verbosity preferences
+- CONFIGURE: Reconfigure sessions' approval/verbosity preferences
 
 ## Guidelines
 - Report tool calls (success/failure).

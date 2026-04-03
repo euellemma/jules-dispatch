@@ -7,8 +7,6 @@ import { resolveLanguageModel } from "./modelResolver";
 
 export { resolveLanguageModel };
 
-console.log("[INSTANCE] Module loading");
-
 interface MemoryDoc {
   activeObservations?: string;
   lastObservedAt: number;
@@ -131,6 +129,20 @@ export const unifiedContextHandler: ContextHandler = async (ctx, args) => {
       content: filesDashboard,
     });
   }
+
+  // 5. Pre-call notifications for slow tools
+  contextMessages.push({
+    role: "user",
+    content: `### SLOW TOOLS
+Before calling these, send a brief message_user notification:
+- create_session → "Starting session..."
+- approve_plan → "Approving..."
+- research → "Searching..."
+- fetch_session_files → "Fetching..."
+- query_sessions → "Checking..."
+
+Pattern: notify → call tool → respond naturally.`,
+  });
 
   return [...filteredMessages, ...contextMessages];
 };
