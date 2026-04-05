@@ -28,7 +28,7 @@ export async function buildAndUploadWeb(installPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const upload = spawn(
       "npx",
-      ["@convex-dev/static-hosting", "upload", "--build", "--prod"],
+      ["@convex-dev/static-hosting", "upload", "--build", "--prod", "--component", "selfHosting"],
       {
         cwd: installPath,
         stdio: "inherit",

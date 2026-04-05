@@ -1,5 +1,6 @@
 import { internalQuery, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
+import { makeUniqueShortName } from "../vfs/pathUtils";
 
 export const addSession = internalMutation({
   args: {
@@ -12,11 +13,13 @@ export const addSession = internalMutation({
       verbosity: v.union(v.literal("silent"), v.literal("milestones"), v.literal("full")),
     })),
   },
+  returns: v.null(),
   handler: async (ctx, args) => {
+    const uniqueName = makeUniqueShortName(args.shortName, args.julesSessionId);
     await ctx.db.insert("julesSessions", {
       threadId: args.threadId,
       julesSessionId: args.julesSessionId,
-      shortName: args.shortName,
+      shortName: uniqueName,
       lastProcessedActivityTime: Date.now(),
       origin: "agent",
       acknowledged: true,
@@ -24,6 +27,7 @@ export const addSession = internalMutation({
       prefs: args.prefs ?? { approval: "confirm", verbosity: "milestones" },
       repo: args.repo,
     });
+    return null;
   }
 });
 
@@ -283,5 +287,42 @@ export const bulkUpdateSessions = internalMutation({
       }
     }
     return { updated };
+  },
+});
+
+/**
+ * Get file counts per session for a thread.
+ * Returns a plain object mapping julesSessionId -> number of extracted files.
+ */
+export const getSessionOutputCounts = internalQuery({
+  args: { threadId: v.string() },
+  returns: v.record(v.string(), v.number()),
+  handler: async (ctx, args) => {
+    const sessions = await ctx.db
+      .query("julesSessions")
+      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .collect();
+
+    const counts: Record<string, number> = {};
+    for (const session of sessions) {
+      const outputs = await ctx.db
+        .query("sessionOutputs")
+        .withIndex("by_julesSessionId", (q) =>
+          q.eq("julesSessionId", session.julesSessionId),
+        )
+        .collect();
+
+      let fileCount = 0;
+      for (const output of outputs) {
+        if (output.extractedFiles) {
+          fileCount += output.extractedFiles.length;
+        }
+      }
+      if (fileCount > 0) {
+        counts[session.julesSessionId] = fileCount;
+      }
+    }
+
+    return counts;
   },
 });

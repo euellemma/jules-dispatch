@@ -199,7 +199,7 @@ function App() {
 
   if (appStatus.status === "loading") {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+      <div className="min-h-screen bg-accent-bg flex flex-col items-center justify-center p-6 text-center">
         <Loader2 className="w-10 h-10 text-primary animate-spin mb-4" />
         <p className="text-slate-600 font-medium">Loading settings...</p>
       </div>
@@ -208,7 +208,7 @@ function App() {
 
   if (appStatus.status === "error") {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
+      <div className="min-h-screen bg-accent-bg flex flex-col items-center justify-center p-6 text-center">
         <div className="bg-white p-8 rounded-lg shadow-sm border border-slate-200 max-w-md w-full">
           <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-slate-900 mb-2">

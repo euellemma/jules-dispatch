@@ -31,6 +31,7 @@ import type * as sessions_sessionManagerAgent from "../sessions/sessionManagerAg
 import type * as sessions_storageActions from "../sessions/storageActions.js";
 import type * as staticHosting from "../staticHosting.js";
 import type * as tasks from "../tasks.js";
+import type * as telegram_typingHeartbeat from "../telegram/typingHeartbeat.js";
 import type * as tools_exa_search from "../tools/exa_search.js";
 import type * as tools_index from "../tools/index.js";
 import type * as tools_nodeActions from "../tools/nodeActions.js";
@@ -41,6 +42,13 @@ import type * as updater_types from "../updater/types.js";
 import type * as users_actions from "../users/actions.js";
 import type * as users_db from "../users/db.js";
 import type * as utils_retry from "../utils/retry.js";
+import type * as vfs_actions from "../vfs/actions.js";
+import type * as vfs_db from "../vfs/db.js";
+import type * as vfs_index from "../vfs/index.js";
+import type * as vfs_pathUtils from "../vfs/pathUtils.js";
+import type * as vfs_resolver from "../vfs/resolver.js";
+import type * as vfs_tools from "../vfs/tools.js";
+import type * as vfs_types from "../vfs/types.js";
 
 import type {
   ApiFromModules,
@@ -72,6 +80,7 @@ declare const fullApi: ApiFromModules<{
   "sessions/storageActions": typeof sessions_storageActions;
   staticHosting: typeof staticHosting;
   tasks: typeof tasks;
+  "telegram/typingHeartbeat": typeof telegram_typingHeartbeat;
   "tools/exa_search": typeof tools_exa_search;
   "tools/index": typeof tools_index;
   "tools/nodeActions": typeof tools_nodeActions;
@@ -82,6 +91,13 @@ declare const fullApi: ApiFromModules<{
   "users/actions": typeof users_actions;
   "users/db": typeof users_db;
   "utils/retry": typeof utils_retry;
+  "vfs/actions": typeof vfs_actions;
+  "vfs/db": typeof vfs_db;
+  "vfs/index": typeof vfs_index;
+  "vfs/pathUtils": typeof vfs_pathUtils;
+  "vfs/resolver": typeof vfs_resolver;
+  "vfs/tools": typeof vfs_tools;
+  "vfs/types": typeof vfs_types;
 }>;
 
 /**

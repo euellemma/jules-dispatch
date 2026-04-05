@@ -21,7 +21,7 @@ interface Props {
 
 export function ProviderModal({ onSelect, onClose }: Props) {
   return (
-    <div className="fixed inset-0 bg-slate-50/95 backdrop-blur-sm z-[100] overflow-y-auto animate-in fade-in duration-300">
+    <div className="fixed inset-0 bg-accent-bg/95 backdrop-blur-sm z-[100] overflow-y-auto animate-in fade-in duration-300">
       <div className="max-w-[900px] mx-auto px-6 py-16 relative">
         <button 
           className="fixed top-6 right-6 p-2 bg-transparent border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors z-[110]" 

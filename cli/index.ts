@@ -438,30 +438,85 @@ async function runWizard(): Promise<void> {
   if (existing.found && existing.path) {
     info(`Found existing installation at: ${existing.path}`);
 
-    const action = await p.select({
-      message: "What would you like to do?",
-      options: [
-        {
-          value: "update",
-          label: "Update existing",
-          hint: "Pull latest & optional deploy",
-        },
-        {
-          value: "fresh",
-          label: "Fresh install",
-          hint: "Set up a new instance",
-        },
-      ],
-    });
+    // Check if this is a deployed installation
+    if (existing.config?.deployKey) {
+      // Deployed installation - recommend commands instead of fresh install
+      p.log.info(colors.dim("\nThis installation is already deployed to production."));
+      p.log.info(colors.dim("Use these commands to manage it:\n"));
 
-    if (p.isCancel(action)) {
-      process.exit(0);
-    }
+      info(colors.cyan("  npx jules-dispatch update"));
+      info(colors.dim("    Pull latest code and optionally redeploy\n"));
 
-    if (action === "update") {
-      await runUpdateCommand();
+      info(colors.cyan("  npx jules-dispatch deploy"));
+      info(colors.dim("    Deploy current code to production\n"));
+
+      // Only allow fresh install if user explicitly wants a new instance
+      const action = await p.select({
+        message: "What would you like to do?",
+        options: [
+          {
+            value: "update",
+            label: "Update existing installation",
+            hint: "Pull latest & optional deploy",
+          },
+          {
+            value: "different",
+            label: "Install in different location",
+            hint: "Set up a new instance elsewhere",
+          },
+          { value: "cancel", label: "Cancel", hint: "Exit setup" },
+        ],
+        initialValue: "update",
+      });
+
+      if (p.isCancel(action) || action === "cancel") {
+        process.exit(0);
+      }
+
+      if (action === "update") {
+        await runUpdateCommand();
+      } else {
+        // Fresh install in different location
+        await runFreshWizard();
+      }
     } else {
-      await runFreshWizard(existing.path);
+      // Non-deployed installation - can update or do fresh install
+      const action = await p.select({
+        message: "What would you like to do?",
+        options: [
+          {
+            value: "update",
+            label: "Update existing",
+            hint: "Pull latest & optional deploy",
+          },
+          {
+            value: "fresh",
+            label: "Fresh install",
+            hint: "Wipe and start over",
+          },
+          {
+            value: "different",
+            label: "Install elsewhere",
+            hint: "Keep existing, set up new instance",
+          },
+          { value: "cancel", label: "Cancel", hint: "Exit setup" },
+        ],
+        initialValue: "update",
+      });
+
+      if (p.isCancel(action) || action === "cancel") {
+        process.exit(0);
+      }
+
+      if (action === "update") {
+        await runUpdateCommand();
+      } else if (action === "different") {
+        // Fresh install in different location
+        await runFreshWizard();
+      } else {
+        // Fresh install on existing path (will prompt to wipe)
+        await runFreshWizard(existing.path);
+      }
     }
   } else {
     await runFreshWizard();

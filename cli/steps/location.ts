@@ -73,9 +73,9 @@ export async function runStepLocation(existingPath?: string): Promise<string> {
       message: "What would you like to do?",
       options: [
         {
-          value: "clear",
-          label: "Clear and start fresh",
-          hint: "Delete everything and start over",
+          value: "wipe",
+          label: c.red("Wipe and start fresh"),
+          hint: c.red("⚠️ Delete everything and start over"),
         },
         {
           value: "different",
@@ -84,7 +84,7 @@ export async function runStepLocation(existingPath?: string): Promise<string> {
         },
         { value: "cancel", label: "Cancel", hint: "Exit setup" },
       ],
-      initialValue: "clear",
+      initialValue: "different",
     });
 
     if (p.isCancel(action) || action === "cancel") {
@@ -96,28 +96,17 @@ export async function runStepLocation(existingPath?: string): Promise<string> {
       return runStepLocation();
     }
 
-    if (action === "clear") {
-      const confirmClear = await p.confirm({
-        message: c.red(
-          `Are you sure you want to delete everything in ${c.bold(resolvedPath)}?`,
-        ),
-        initialValue: false,
-      });
-
-      if (p.isCancel(confirmClear) || !confirmClear) {
-        process.exit(0);
-      }
-
+    if (action === "wipe") {
       const s = p.spinner();
-      s.start("Clearing directory...");
+      s.start("Wiping directory...");
 
       try {
         fs.rmSync(resolvedPath, { recursive: true, force: true });
-        s.stop("Directory cleared!");
+        s.stop("Directory wiped!");
       } catch (error) {
-        s.stop("Failed to clear directory");
+        s.stop("Failed to wipe directory");
         throw new WizardError(
-          `Failed to clear directory: ${error}`,
+          `Failed to wipe directory: ${error}`,
           "location",
           true,
           "Check permissions or manually delete the directory",

@@ -4,26 +4,15 @@ import { internal } from "../_generated/api";
 import { julesAgent, resolveLanguageModel } from "../agent/instance";
 import { getJulesClient } from "../tools/nodeActions";
 import type { ProcessedOutput, JulesApiSession } from "../types";
-import { normalizeState } from "../types";
 import type { GenericActionCtx } from "convex/server";
 
-// Type for action context passed to helper functions
 type ActionCtx = GenericActionCtx<any>;
-
-interface WakerEvent {
-  type: "resumed" | "state_change" | "message";
-  sessionId: string;
-  shortName: string;
-  threadId: string;
-  details: string;
-}
 
 export const pollJulesActivities = internalAction({
   args: {},
   handler: async (ctx) => {
     const cronStartMs = Date.now();
-    const wakerEvents: WakerEvent[] = [];
-    
+
     const sessions = await ctx.runQuery(internal.sessions.db.getDashboardSessions, {});
     if (sessions.length === 0) return;
 
@@ -48,6 +37,10 @@ export const pollJulesActivities = internalAction({
       }
     }
 
+    // Accumulate poll messages per thread
+    const pollMessages = new Map<string, string[]>();
+    const needsWake = new Set<string>();
+
     for (const sessionDoc of sessions) {
       try {
         const julesSession = sessionMap.get(sessionDoc.julesSessionId);
@@ -57,9 +50,7 @@ export const pollJulesActivities = internalAction({
         }
 
         const currentState = julesSession.state || "unknown";
-        const normalizedCurrentState = normalizeState(currentState);
-        const outputs = julesSession.outputs || [];
-        const lastKnownState = sessionDoc.lastKnownState;
+        const shortName = sessionDoc.shortName || sessionDoc.julesSessionId.slice(0, 8);
 
         let activitiesResult: Array<any> = [];
         try {
@@ -72,214 +63,139 @@ export const pollJulesActivities = internalAction({
         } catch (error) {
           console.error(`[pollJulesActivities] Activity fetch failed for ${sessionDoc.julesSessionId} — proceeding without new activities:`, error);
         }
-        
+
         let maxTime = sessionDoc.lastProcessedActivityTime || 0;
         const newActivities = activitiesResult.filter((act: any) => {
-          const actTime = new Date(act.createTime).getTime();
-          return actTime > (sessionDoc.lastProcessedActivityTime || 0) && act.originator !== 'user';
+          return act.originator !== 'user' || act.type === 'planApproved';
         });
 
-        // 1. Handle Activities When State Has Not Changed
-        if (currentState === lastKnownState && newActivities.length > 0) {
-           let agentMessage = null;
+        const sessionParts: string[] = [];
 
-           for (const act of newActivities) {
-              const actTime = new Date(act.createTime).getTime();
-              if (actTime > maxTime) maxTime = actTime;
+        for (const act of newActivities) {
+          const actTime = new Date(act.createTime).getTime();
+          if (actTime > maxTime) maxTime = actTime;
 
-              if (act.type === 'progressUpdated') {
-                if (act.artifacts && act.artifacts.length > 0) {
-                  await processOutputs(ctx, sessionDoc.julesSessionId, act.artifacts, true, act.id);
-                }
-              } else if (act.type === 'agentMessaged') {
-                agentMessage = act;
-              }
-           }
-
-           if (agentMessage) {
-              console.log(`[pollJulesActivities] Waking agent for message in ${sessionDoc.shortName}`);
-              
-              wakerEvents.push({
-                type: "message",
-                sessionId: sessionDoc.julesSessionId,
-                shortName: sessionDoc.shortName || sessionDoc.julesSessionId.slice(0, 8),
-                threadId: sessionDoc.threadId,
-                details: agentMessage.message,
-              });
-           }
-
-            // State update after processing activities
-            await ctx.runMutation(internal.sessions.db.updateSessionState, {
-              sessionId: sessionDoc._id,
-              lastKnownState: currentState,
-              lastProcessedActivityTime: maxTime
-            });
-        }
-
-        // 2. Handle Major State Changes
-        if (currentState !== lastKnownState) {
-          console.log(`[pollJulesActivities] Session ${sessionDoc.shortName}: ${lastKnownState || 'unknown'} -> ${currentState}`);
-          
-          const currentUpper = normalizedCurrentState === "UNKNOWN"
-            ? (currentState || "").toUpperCase()
-            : normalizedCurrentState;
-
-          let updatesText = `[SYSTEM: State Change - ${sessionDoc.shortName} -> ${currentState}]\n\n`;
-
-          if (newActivities.length > 0) {
-            updatesText += `Recent background activities:\n`;
-            for (const act of newActivities) {
-              const actTime = new Date(act.createTime).getTime();
-              if (actTime > maxTime) maxTime = actTime;
-
-              if (act.type === 'progressUpdated') {
-                updatesText += `- Progress: ${act.title}${act.description ? ': ' + act.description : ''}\n`;
-                if (act.artifacts && act.artifacts.length > 0) {
-                  const processed = await processOutputs(ctx, sessionDoc.julesSessionId, act.artifacts, true, act.id);
-                  if (processed) {
-                    for (const out of processed) {
-                      if (out.type === 'changeSet' && out.extractedFiles) {
-                        updatesText += `  (Files updated: ${out.extractedFiles.map((f) => f.path).join(', ')})\n`;
-                      }
-                    }
-                  }
-                }
-              } else if (act.type === 'planGenerated' && act.plan) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const plan = act.plan as any;
-                updatesText += `- Plan: "${plan.title ?? 'Untitled'}"\n`;
-                plan.steps?.forEach((step: { index: number; title?: string }) => {
-                  updatesText += `    ${step.index}. ${step.title ?? 'Untitled'}\n`;
-                });
-              } else if (act.type === 'agentMessaged') {
-                updatesText += `- Jules: ${act.message}\n`;
-              } else if (act.type === 'sessionCompleted') {
-                updatesText += `- Status: Completed.\n`;
-              } else if (act.type === 'sessionFailed') {
-                updatesText += `- Status: Failed.\n`;
-              }
+          if (act.type === 'progressUpdated') {
+            // Silent — only process files, no message text
+            if (act.artifacts && act.artifacts.length > 0) {
+              await processOutputs(ctx, sessionDoc.julesSessionId, act.artifacts, true, act.id);
             }
-          }
-          
-          const { messageId } = await julesAgent.saveMessage(ctx, {
-            threadId: sessionDoc.threadId,
-            message: { role: "user", content: updatesText }
-          });
-
-          // Step 12: Use cached model
-          const model = modelCache.get(sessionDoc.threadId);
-          if (!model) {
-            console.error(`[pollJulesActivities] No cached model for thread ${sessionDoc.threadId} — skipping agent wake`);
-          } else {
-            await julesAgent.generateText(ctx, { threadId: sessionDoc.threadId }, {
-              model,
-              promptMessageId: messageId,
+          } else if (act.type === 'agentMessaged') {
+            sessionParts.push(`Jules: ${act.message}`);
+            needsWake.add(sessionDoc.threadId);
+          } else if (act.type === 'planGenerated' && act.plan) {
+            const plan = act.plan as any;
+            let planText = `Plan: "${plan.title ?? 'Untitled'}"`;
+            if (plan.description) {
+              planText += `\n   ${plan.description}`;
+            }
+            plan.steps?.forEach((step: { index: number; title?: string }) => {
+              planText += `\n   ${step.index}. ${step.title ?? 'Untitled'}`;
             });
-          }
-
-          // State update after state change
-          await ctx.runMutation(internal.sessions.db.updateSessionState, {
-            sessionId: sessionDoc._id,
-            lastKnownState: currentState,
-            lastProcessedActivityTime: maxTime
-          });
-
-          if (currentUpper === "COMPLETED") {
-            // IMPORTANT: session.outputs is empty in list responses.
-            // Must fetch full session details to get actual outputs.
-            let finalOutputs = outputs;
+            sessionParts.push(planText);
+            needsWake.add(sessionDoc.threadId);
+          } else if (act.type === 'sessionCompleted') {
+            // Fetch full session outputs
+            let finalOutputs: any[] = [];
             try {
               const sessionClient = await jules.session(sessionDoc.julesSessionId);
               const fullSession = await sessionClient.info();
-              // Outputs may be in outcome.outputs or directly in outputs
               finalOutputs = fullSession.outcome?.outputs || fullSession.outputs || [];
             } catch (fetchError) {
               console.error(`[pollJulesActivities] Failed to fetch session details for outputs: ${fetchError instanceof Error ? fetchError.message : String(fetchError)}`);
-              // Continue with empty outputs from list response
             }
-            
+
             const processed = await processOutputs(ctx, sessionDoc.julesSessionId, finalOutputs, false);
-            
+
+            let completionText = `Completed.`;
             if (processed && processed.length > 0) {
-              let jitMessage = `[SYSTEM: Session ${sessionDoc.shortName} Completed]\nFinal results:\n`;
               for (const out of processed) {
                 if (out.type === 'changeSet' && out.extractedFiles) {
-                  jitMessage += `- ${out.extractedFiles.length} file(s) changed\n`;
+                  completionText += ` ${out.extractedFiles.length} file(s) changed.`;
                 } else if (out.type === 'pullRequest') {
-                  jitMessage += `- PR: ${out.url}\n`;
+                  completionText += ` PR: ${out.url}`;
                 }
               }
-              jitMessage += `\nUse 'get_session_files' to retrieve the code or 'get_session_activities' for chronological logs.`;
-              
-              const { messageId } = await julesAgent.saveMessage(ctx, {
-                threadId: sessionDoc.threadId,
-                message: { role: "user", content: jitMessage }
-              });
-
-              const model2 = modelCache.get(sessionDoc.threadId);
-              if (!model2) {
-                console.error(`[pollJulesActivities] No cached model for thread ${sessionDoc.threadId} — skipping completion notification`);
-              } else {
-                await julesAgent.generateText(ctx, { threadId: sessionDoc.threadId }, {
-                  model: model2,
-                  promptMessageId: messageId,
-                });
-              }
             }
+            sessionParts.push(completionText);
+            needsWake.add(sessionDoc.threadId);
+          } else if (act.type === 'sessionFailed') {
+            sessionParts.push(`Failed.`);
+            needsWake.add(sessionDoc.threadId);
           }
         }
+
+        // Build session block for this session's activities
+        if (sessionParts.length > 0) {
+          const block = `[${shortName}]\n${sessionParts.map(p => `  ${p}`).join('\n')}`;
+          const threadMsgs = pollMessages.get(sessionDoc.threadId) || [];
+          threadMsgs.push(block);
+          pollMessages.set(sessionDoc.threadId, threadMsgs);
+        }
+
+        // Update state tracking (for dashboard display, not for wake logic)
+        await ctx.runMutation(internal.sessions.db.updateSessionState, {
+          sessionId: sessionDoc._id,
+          lastKnownState: currentState,
+          lastProcessedActivityTime: maxTime,
+        });
       } catch (error) {
         console.error(`[pollJulesActivities] Failed to process session ${sessionDoc.julesSessionId}:`, error);
       }
     }
-    
-    // 3. Send aggregated waker events to main agent
-    if (wakerEvents.length > 0) {
-      await sendWakerEvents(ctx, wakerEvents);
-      console.log(`[pollJulesActivities] Processed ${wakerEvents.length} event(s) in ${Date.now() - cronStartMs}ms`);
-    }
-  }
-});
 
-async function sendWakerEvents(ctx: ActionCtx, events: WakerEvent[]) {
-  console.log(`[sendWakerEvents] Sending ${events.length} aggregated events`);
-  
-  // Group events by threadId
-  const byThread = new Map<string, WakerEvent[]>();
-  for (const event of events) {
-    if (!event.threadId) continue;
-    const existing = byThread.get(event.threadId) || [];
-    existing.push(event);
-    byThread.set(event.threadId, existing);
-  }
-  
-  for (const [threadId, threadEvents] of byThread) {
-    let message = `[SESSION EVENTS] ${threadEvents.length} event(s):\n\n`;
-    
-    for (const event of threadEvents) {
-      if (event.type === "message") {
-        message += `[NEW MESSAGE] ${event.shortName}\n   ${event.details}\n\n`;
+    // Wake agent per thread — single message, single generateText
+    for (const threadId of needsWake) {
+      const parts = pollMessages.get(threadId);
+      if (!parts || parts.length === 0) continue;
+
+      const pollMessage = `[ACTIVITY UPDATE]\n\n${parts.join('\n\n')}`;
+      const model = modelCache.get(threadId);
+
+      if (!model) {
+        console.error(`[pollJulesActivities] No cached model for thread ${threadId} — skipping agent wake`);
+        continue;
+      }
+
+      const isRunning = await ctx.runQuery(internal.users.db.isAgentRunning, { threadId });
+
+      if (isRunning) {
+        // Queue — agent is busy
+        await ctx.runMutation(internal.users.db.appendPendingMessage, {
+          threadId,
+          text: pollMessage,
+        });
+        console.log(`[pollJulesActivities] Queued activity message for thread ${threadId} (agent running)`);
+      } else {
+        // Wake agent directly
+        await ctx.runMutation(internal.users.db.setAgentRunning, { threadId, isRunning: true });
+        try {
+          const { messageId } = await julesAgent.saveMessage(ctx, {
+            threadId,
+            message: { role: "user", content: pollMessage },
+          });
+          await julesAgent.generateText(ctx, { threadId }, {
+            model,
+            promptMessageId: messageId,
+          });
+        } finally {
+          await ctx.runMutation(internal.users.db.setAgentRunning, { threadId, isRunning: false });
+          // Drain any pending messages that arrived during generateText
+          const pending = await ctx.runQuery(internal.users.db.getPendingMessages, { threadId });
+          if (pending && pending.trim() !== "") {
+            await ctx.scheduler.runAfter(0, internal.api.telegram.processMessageQueue, {
+              threadId,
+              telegramChatId: await ctx.runQuery(internal.users.db.getChatIdForThread, { threadId }) ?? "",
+            });
+          }
+        }
+        console.log(`[pollJulesActivities] Woke agent for thread ${threadId}`);
       }
     }
-    
-    try {
-      const { messageId } = await julesAgent.saveMessage(ctx, {
-        threadId,
-        message: { role: "user", content: message }
-      });
-      
-      const model = await resolveLanguageModel(ctx, threadId);
-      await julesAgent.generateText(ctx, { threadId }, {
-        model,
-        promptMessageId: messageId,
-      });
-      
-      console.log(`[sendWakerEvents] Sent ${threadEvents.length} events to thread ${threadId}`);
-    } catch (error) {
-      console.error(`[sendWakerEvents] Error sending events to thread ${threadId}:`, error);
-    }
+
+    console.log(`[pollJulesActivities] Poll cycle completed in ${Date.now() - cronStartMs}ms`);
   }
-}
+});
 
 function extractFilesFromDiff(unidiff: string): Array<{ path: string, content: string }> {
   const fileBlocks = unidiff.split(/(?=^diff --git)/m).filter(Boolean);

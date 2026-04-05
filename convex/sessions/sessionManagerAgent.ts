@@ -237,17 +237,13 @@ export async function spawnSessionManagerAgent(
       julesSessionId: z.string().describe("The Jules session ID to inspect."),
     }),
     execute: async (subCtx, args) => {
-      const matchingSession = sessions.find(
-        (s) => s.julesSessionId === args.julesSessionId,
-      );
-      const sessionsArg = matchingSession ? [matchingSession] : sessions;
-
+      // Fetch live data from API instead of using prefetched sessions
       const result = (await subCtx.runAction(
         internal.sessions.sessionManager.getSessionDetails,
         {
           sessionIds: [args.julesSessionId],
           threadId: originalThreadId,
-          sessions: sessionsArg,
+          // Not passing 'sessions' param - forces live fetch from API
         },
       )) as any;
 

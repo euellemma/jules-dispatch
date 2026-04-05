@@ -256,16 +256,6 @@ export async function processTelegramUpdate(
         size,
       });
 
-      if (caption) {
-        const threadId = await ctx.runMutation(
-          internal.users.db.getOrCreateUserThread,
-          {
-            telegramChatId: chatId,
-          },
-        );
-        await queueMessage(ctx, chatId, `Caption for file "${fileName}": ${caption}`, threadId);
-      }
-
       return { success: true, handled: true };
     }
 
@@ -477,6 +467,11 @@ export const processMessageQueue = internalAction({
       isRunning: true,
     });
 
+    // Start typing heartbeat to keep indicator alive during long operations
+    await ctx.runAction(internal.telegram.typingHeartbeat.heartbeat, {
+      threadId,
+    });
+
     try {
       await sendTelegramChatAction(telegramChatId, "typing");
 
@@ -536,9 +531,11 @@ export const processMessageQueue = internalAction({
         internal.users.db.getPendingMessages,
         { threadId },
       );
-      if (newPending && newPending.trim() !== "" && !isRunning) {
-        // If we have more and it's not an error state that stopped us
-        // (In a real queue we'd check if the error was retriable)
+      if (newPending && newPending.trim() !== "") {
+        await ctx.scheduler.runAfter(0, internal.api.telegram.processMessageQueue, {
+          threadId,
+          telegramChatId,
+        });
       }
     }
   },
@@ -610,7 +607,7 @@ export const downloadAndStoreFile = internalAction({
     try {
       const fileBuffer = await downloadTelegramFile(args.fileId);
       const storageId = await ctx.storage.store(
-        new Blob([new Uint8Array(fileBuffer).buffer]) as any,
+        new Blob([fileBuffer as any], { type: "application/octet-stream" }),
       );
 
       const threadId = await ctx.runMutation(
@@ -627,6 +624,19 @@ export const downloadAndStoreFile = internalAction({
         caption: args.caption,
         size: args.size,
       });
+
+      // Send success confirmation only after successful storage
+      if (args.caption) {
+        await sendTelegramMessage(
+          args.telegramChatId,
+          `Caption for file "${args.fileName}": ${args.caption}`,
+        );
+      } else {
+        await sendTelegramMessage(
+          args.telegramChatId,
+          `File "${args.fileName}" uploaded`,
+        );
+      }
     } catch (error) {
       console.error("[downloadAndStoreFile] ERROR:", error);
       try {

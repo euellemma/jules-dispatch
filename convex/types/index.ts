@@ -322,17 +322,6 @@ export type SessionQueryResult =
   | { success: false; error: string };
 
 /**
- * Waker event for polling notifications
- */
-export interface WakerEvent {
-  type: "discovered" | "message";
-  sessionId: string;
-  shortName: string;
-  threadId: string;
-  details: string;
-}
-
-/**
  * File registration input
  */
 export interface FileRegistration {

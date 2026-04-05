@@ -45,8 +45,7 @@ export const getChatIdForThread = internalQuery({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.db.query("users")
-      .withIndex("by_telegramChatId")
-      .filter(q => q.eq(q.field("threadId"), args.threadId))
+      .withIndex("by_threadId", q => q.eq("threadId", args.threadId))
       .first();
     return user?.telegramChatId;
   }
@@ -384,8 +383,7 @@ export const updateLastSearchingSent = internalMutation({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.db.query("users")
-      .withIndex("by_telegramChatId")
-      .filter(q => q.eq(q.field("threadId"), args.threadId))
+      .withIndex("by_threadId", q => q.eq("threadId", args.threadId))
       .first();
     if (user) {
       await ctx.db.patch(user._id, { lastSearchingSentAt: Date.now() });
@@ -397,8 +395,7 @@ export const getLastSearchingSent = internalQuery({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.db.query("users")
-      .withIndex("by_telegramChatId")
-      .filter(q => q.eq(q.field("threadId"), args.threadId))
+      .withIndex("by_threadId", q => q.eq("threadId", args.threadId))
       .first();
     return user?.lastSearchingSentAt;
   }
@@ -409,8 +406,7 @@ export const appendPendingMessage = internalMutation({
   handler: async (ctx, { threadId, text }) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_telegramChatId")
-      .filter(q => q.eq(q.field("threadId"), threadId))
+      .withIndex("by_threadId", q => q.eq("threadId", threadId))
       .first();
     if (!user) return;
     const current = user.pendingMessageText || "";
@@ -426,8 +422,7 @@ export const getPendingMessages = internalQuery({
   handler: async (ctx, { threadId }) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_telegramChatId")
-      .filter(q => q.eq(q.field("threadId"), threadId))
+      .withIndex("by_threadId", q => q.eq("threadId", threadId))
       .first();
     return user?.pendingMessageText || "";
   },
@@ -438,8 +433,7 @@ export const clearPendingMessages = internalMutation({
   handler: async (ctx, { threadId }) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_telegramChatId")
-      .filter(q => q.eq(q.field("threadId"), threadId))
+      .withIndex("by_threadId", q => q.eq("threadId", threadId))
       .first();
     if (user) {
       await ctx.db.patch(user._id, { pendingMessageText: undefined });
@@ -452,8 +446,7 @@ export const setAgentRunning = internalMutation({
   handler: async (ctx, { threadId, isRunning }) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_telegramChatId")
-      .filter(q => q.eq(q.field("threadId"), threadId))
+      .withIndex("by_threadId", q => q.eq("threadId", threadId))
       .first();
     if (user) {
       await ctx.db.patch(user._id, { isAgentRunning: isRunning });
@@ -466,8 +459,7 @@ export const isAgentRunning = internalQuery({
   handler: async (ctx, args) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_telegramChatId")
-      .filter(q => q.eq(q.field("threadId"), args.threadId))
+      .withIndex("by_threadId", q => q.eq("threadId", args.threadId))
       .first();
     return user?.isAgentRunning ?? false;
   },
