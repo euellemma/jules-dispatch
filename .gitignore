@@ -64,5 +64,3 @@ tmp/
 # Tester session logs
 tester/results/
 tester
-docs
-opencode-tmp/

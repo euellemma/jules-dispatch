@@ -1,7 +1,7 @@
 import { createTool } from "@convex-dev/agent";
 import { z } from "zod";
 import { internal } from "../_generated/api";
-import { KEbabCaseRegex } from "./types";
+import { kebabCaseRegex } from "./types";
 import { parseVfsPath } from "./pathUtils";
 
 export const vfs = createTool({
@@ -200,15 +200,15 @@ async function handleSend(
     } else {
       // Directory: collect all files within
       const fileEntries = entries.filter((e: any) => !e.isDirectory);
-      for (const entry of fileEntries) {
-        if (entry.storageId) {
+      const fetches = fileEntries
+        .filter((e: any) => e.storageId)
+        .map(async (entry: any) => {
           const content = await ctx.runAction(internal.vfs.actions.fetchContent, {
             storageId: entry.storageId,
           });
-          const filename = entry.filePath || entry.name;
-          files.push({ path: filename, content });
-        }
-      }
+          return { path: entry.filePath || entry.name, content };
+        });
+      files.push(...await Promise.all(fetches));
     }
   }
 
@@ -233,7 +233,10 @@ async function handleSend(
   });
 
   if (args.asZip || (hasDir && files.length > 1)) {
-    const zipName = `vfs-files.zip`;
+    const dirName = paths.length === 1
+      ? (paths[0]!.split("/").filter(Boolean).pop() || "files")
+      : "files";
+    const zipName = `${dirName}.zip`;
     console.log(`[vfs:send] Sending ${files.length} file(s) as ZIP`);
     const sendRes = await ctx.runAction(
       internal.tools.nodeActions.sendTelegramZipAction,
@@ -274,7 +277,7 @@ async function handleRegister(
 
   // Validate assigned names
   for (const reg of args.registrations) {
-    if (!KEbabCaseRegex.test(reg.assignedName)) {
+    if (!kebabCaseRegex.test(reg.assignedName)) {
       return `Error: '${reg.assignedName}' is not valid kebab-case with extension. Use format like 'my-file.md'.`;
     }
   }

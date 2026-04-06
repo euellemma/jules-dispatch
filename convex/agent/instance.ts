@@ -25,6 +25,7 @@ interface JulesSession {
     verbosity?: string;
   };
   lastActivity?: string;
+  outputCount: number;
 }
 
 interface FileDoc {

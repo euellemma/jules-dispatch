@@ -39,7 +39,7 @@ export interface VfsReadResult {
 // Zod Schemas for Tool Actions
 // ============================================================================
 
-export const KEbabCaseRegex = /^[a-z0-9]+(-[a-z0-9]+)*\.[a-z0-9]+$/;
+export const kebabCaseRegex = /^[a-z0-9]+(-[a-z0-9]+)*\.[a-z0-9]+$/;
 
 export const lsArgs = v.object({
   action: v.literal("ls"),

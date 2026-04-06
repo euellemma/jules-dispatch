@@ -16,6 +16,7 @@ export default defineSchema({
       verbosity: v.union(v.literal("silent"), v.literal("milestones"), v.literal("full")),
     })),
     repo: v.optional(v.string()),
+    outputCount: v.number(),
   })
     .index("by_julesSessionId", ["julesSessionId"])
     .index("by_threadId", ["threadId"])

@@ -185,8 +185,15 @@ export const listThreadVfs = internalQuery({
           sessionShortName: sessionName,
         });
       }
+    } else if (targetPath.startsWith("/sessions/") && targetPath.includes("/files")) {
+      // Actual file listing within a session's files/
+      const sessionName = targetPath.split("/")[2];
+      const fileEntries = sessionEntries.filter(
+        (e) => e.sessionShortName === sessionName && !e.isDirectory,
+      );
+      entries.push(...fileEntries);
     } else if (targetPath.startsWith("/sessions/")) {
-      // Session file listing — include files AND a files/ subdirectory
+      // Session directory — show session dir entry + files/ subdirectory
       const sessionName = targetPath.split("/")[2];
       const matchingSession = sessionEntries.filter(
         (e) => e.sessionShortName === sessionName,
@@ -205,13 +212,6 @@ export const listThreadVfs = internalQuery({
           sessionShortName: sessionName,
         });
       }
-    } else if (targetPath.startsWith("/sessions/") && targetPath.includes("/files")) {
-      // Actual file listing within a session's files/
-      const sessionName = targetPath.split("/")[2];
-      const fileEntries = sessionEntries.filter(
-        (e) => e.sessionShortName === sessionName && !e.isDirectory,
-      );
-      entries.push(...fileEntries);
     }
 
     return entries;
@@ -287,27 +287,5 @@ export const registerViaVfs = internalMutation({
     }
 
     return results;
-  },
-});
-
-/**
- * Delete uploaded files for a thread (cleanup).
- * Returns storage IDs for blob cleanup.
- */
-export const deleteFilesForThread = internalMutation({
-  args: { threadId: v.string() },
-  returns: v.array(v.string()),
-  handler: async (ctx, args) => {
-    const files = await ctx.db
-      .query("uploadedFiles")
-      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
-      .collect();
-
-    const storageIds: string[] = [];
-    for (const f of files) {
-      storageIds.push(f.storageId);
-      await ctx.db.delete(f._id);
-    }
-    return storageIds;
   },
 });

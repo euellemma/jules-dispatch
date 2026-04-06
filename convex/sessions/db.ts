@@ -26,6 +26,7 @@ export const addSession = internalMutation({
       inDashboard: true,
       prefs: args.prefs ?? { approval: "confirm", verbosity: "milestones" },
       repo: args.repo,
+      outputCount: 0,
     });
     return null;
   }
@@ -109,6 +110,7 @@ export const upsertDiscoveredSession = internalMutation({
       inDashboard: false,
       prefs: { approval: "confirm", verbosity: "milestones" },
       repo: args.repo,
+      outputCount: 0,
     });
     return id;
   }
@@ -199,6 +201,25 @@ export const saveSessionOutputRecord = internalMutation({
       julesSessionId: args.julesSessionId,
       ...output,
     });
+
+    // Recompute output counter
+    const session = await ctx.db
+      .query("julesSessions")
+      .withIndex("by_julesSessionId", (q) => q.eq("julesSessionId", args.julesSessionId))
+      .unique();
+
+    if (session) {
+      const allOutputs = await ctx.db
+        .query("sessionOutputs")
+        .withIndex("by_julesSessionId", (q) => q.eq("julesSessionId", args.julesSessionId))
+        .collect();
+
+      let fileCount = 0;
+      for (const o of allOutputs) {
+        if (o.extractedFiles) fileCount += o.extractedFiles.length;
+      }
+      await ctx.db.patch(session._id, { outputCount: fileCount });
+    }
   },
 });
 
@@ -293,6 +314,7 @@ export const bulkUpdateSessions = internalMutation({
 /**
  * Get file counts per session for a thread.
  * Returns a plain object mapping julesSessionId -> number of extracted files.
+ * Uses denormalized outputCount field for O(1) reads.
  */
 export const getSessionOutputCounts = internalQuery({
   args: { threadId: v.string() },
@@ -304,25 +326,11 @@ export const getSessionOutputCounts = internalQuery({
       .collect();
 
     const counts: Record<string, number> = {};
-    for (const session of sessions) {
-      const outputs = await ctx.db
-        .query("sessionOutputs")
-        .withIndex("by_julesSessionId", (q) =>
-          q.eq("julesSessionId", session.julesSessionId),
-        )
-        .collect();
-
-      let fileCount = 0;
-      for (const output of outputs) {
-        if (output.extractedFiles) {
-          fileCount += output.extractedFiles.length;
-        }
-      }
-      if (fileCount > 0) {
-        counts[session.julesSessionId] = fileCount;
+    for (const s of sessions) {
+      if (s.outputCount > 0) {
+        counts[s.julesSessionId] = s.outputCount;
       }
     }
-
     return counts;
   },
 });
