@@ -67,3 +67,28 @@ export async function withRetry<T>(
     }
   }
 }
+
+/**
+ * Returns true for errors that are permanent and will not resolve by retrying
+ * (e.g. quota exceeded, invalid API key, billing issues).
+ * These should trigger a circuit breaker instead of infinite retries.
+ */
+export function isNonRetriableError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  const lower = msg.toLowerCase();
+  const status = (error as any)?.status;
+  return (
+    lower.includes("subscription quota exceeded") ||
+    lower.includes("quota exceeded") ||
+    lower.includes("invalid_api_key") ||
+    lower.includes("invalid api key") ||
+    lower.includes("api key not found") ||
+    lower.includes("authentication failed") ||
+    lower.includes("unauthorized") ||
+    lower.includes("provider not configured") ||
+    lower.includes("billing") ||
+    lower.includes("insufficient credits") ||
+    status === 401 ||
+    status === 403
+  );
+}

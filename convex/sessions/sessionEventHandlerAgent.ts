@@ -7,6 +7,7 @@ import { v } from "convex/values";
 import { message_jules, approve_plan } from "../tools/index";
 import { createReportToOrchestratorTool } from "../tools/reportToOrchestrator";
 import { resolveLanguageModel } from "../agent/modelResolver";
+import { isNonRetriableError } from "../utils/retry";
 
 // ============================================================================
 // Types
@@ -261,6 +262,15 @@ export async function spawnSessionEventHandler(
     console.error(
       `[sessionEventHandler] Handler failed for ${args.julesSessionId}: ${errorMsg}`,
     );
+
+    // Don't re-inject non-retriable errors (quota, auth) into the main queue —
+    // it creates an infinite cron→error→wake→error loop
+    if (isNonRetriableError(error)) {
+      console.warn(
+        `[sessionEventHandler] Non-retriable error for ${args.julesSessionId}, not waking main agent`,
+      );
+      return;
+    }
 
     // Report failure to orchestrator so the main agent knows
     try {

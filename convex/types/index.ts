@@ -68,6 +68,7 @@ export interface UserDoc {
   lastSearchingSentAt?: number;
   isAgentRunning?: boolean;
   pendingMessageText?: string;
+  consecutiveFailures?: number;
   julesApiKey?: string;
   exaApiKey?: string;
   providerConfig?: ProviderConfig;

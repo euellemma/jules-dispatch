@@ -31,7 +31,7 @@
     "ci": "npm run typecheck:all && npm run lint",
     "deploy:dev": "npx convex deploy --yes",
     "deploy": "npx @convex-dev/static-hosting deploy --yes",
-    "deploy:web": "npm run build:web && npx @convex-dev/static-hosting upload --build --prod",
+    "deploy:web": "npm run build:web && npx @convex-dev/static-hosting upload --dist ./web/dist --prod",
     "auth:byok": "echo 'Open settings from Telegram using /connect command'",
     "cli": "npm run build:cli && node dist/cli/index.js",
     "prepublishOnly": "npm run build:cli",

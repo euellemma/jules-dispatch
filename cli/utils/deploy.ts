@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import * as p from "@clack/prompts";
 import c from "picocolors";
 import { parseDeployKey } from "../config.js";
@@ -28,7 +28,7 @@ export async function buildAndUploadWeb(installPath: string): Promise<boolean> {
   return new Promise((resolve) => {
     const upload = spawn(
       "npx",
-      ["@convex-dev/static-hosting", "upload", "--build", "--prod", "--component", "selfHosting"],
+      ["@convex-dev/static-hosting", "upload", "--dist", "./web/dist", "--prod", "--component", "staticHosting"],
       {
         cwd: installPath,
         stdio: "inherit",
@@ -41,6 +41,25 @@ export async function buildAndUploadWeb(installPath: string): Promise<boolean> {
       resolve(code === 0);
     });
   });
+}
+
+export function setConvexEnvVars(
+  installPath: string,
+  envVars: Record<string, string>,
+): boolean {
+  let allSucceeded = true;
+  for (const [key, value] of Object.entries(envVars)) {
+    try {
+      spawnSync("npx", ["convex", "env", "set", `${key}=${value}`, "--prod"], {
+        cwd: installPath,
+        stdio: "pipe",
+        shell: true,
+      });
+    } catch {
+      allSucceeded = false;
+    }
+  }
+  return allSucceeded;
 }
 
 export async function setupTelegramWebhook(

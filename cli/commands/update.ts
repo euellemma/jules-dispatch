@@ -10,6 +10,7 @@ import {
   runConvexDeploy,
   buildAndUploadWeb,
   setupTelegramWebhook,
+  setConvexEnvVars,
   parseDeployKey,
 } from "../utils/deploy.js";
 import { promptForDeployKey } from "../steps/convex.js";
@@ -120,6 +121,24 @@ export async function runUpdateCommand(): Promise<void> {
       if (success) {
         s.stop(c.green("Backend deployed successfully!"));
 
+        // Set environment variables on the Convex deployment
+        const keyInfo = parseDeployKey(config.deployKey);
+        if (keyInfo) {
+          s.start("Configuring deployment environment...");
+          const envSuccess = setConvexEnvVars(installPath, {
+            CONVEX_URL: keyInfo.convexUrl,
+            CONVEX_SITE_URL: keyInfo.convexSiteUrl,
+          });
+          if (envSuccess) {
+            s.stop(c.green("Environment configured!"));
+          } else {
+            s.stop(c.yellow("Environment configuration had issues"));
+            p.log.warn(c.yellow("Some env vars may not have been set. Run manually:"));
+            info(`  npx convex env set CONVEX_URL=${keyInfo.convexUrl} --prod`);
+            info(`  npx convex env set CONVEX_SITE_URL=${keyInfo.convexSiteUrl} --prod`);
+          }
+        }
+
         // Build and upload web UI
         s.start("Building and uploading web UI...");
         const webUploadSuccess = await buildAndUploadWeb(installPath);
@@ -135,7 +154,6 @@ export async function runUpdateCommand(): Promise<void> {
           info("  npm run deploy:web");
         }
 
-        const keyInfo = parseDeployKey(config.deployKey);
         if (keyInfo) {
           writeEnvLocal(installPath, {
             CONVEX_URL: keyInfo.convexUrl,
@@ -178,6 +196,24 @@ export async function runUpdateCommand(): Promise<void> {
 
         if (success) {
           s.stop(c.green("Deployed successfully!"));
+
+          // Set environment variables on the Convex deployment
+          const newKeyInfo = parseDeployKey(deployKey);
+          if (newKeyInfo) {
+            s.start("Configuring deployment environment...");
+            const envSuccess = setConvexEnvVars(installPath, {
+              CONVEX_URL: newKeyInfo.convexUrl,
+              CONVEX_SITE_URL: newKeyInfo.convexSiteUrl,
+            });
+            if (envSuccess) {
+              s.stop(c.green("Environment configured!"));
+            } else {
+              s.stop(c.yellow("Environment configuration had issues"));
+              p.log.warn(c.yellow("Some env vars may not have been set. Run manually:"));
+              info(`  npx convex env set CONVEX_URL=${newKeyInfo.convexUrl} --prod`);
+              info(`  npx convex env set CONVEX_SITE_URL=${newKeyInfo.convexSiteUrl} --prod`);
+            }
+          }
         } else {
           s.stop(c.red("Deployment failed"));
         }

@@ -144,7 +144,7 @@ export const updateProviderConfig = internalMutation({
     };
 
     if (user) {
-      await ctx.db.patch(user._id, { providerConfig: config });
+      await ctx.db.patch(user._id, { providerConfig: config, consecutiveFailures: 0 });
       
       // Auto-recovery: If there are pending messages, trigger the queue
       if (user.pendingMessageText) {
@@ -242,6 +242,7 @@ export const cycleUserThread = internalMutation({
       threadId: newThreadId,
       isAgentRunning: false,
       pendingMessageText: undefined,
+      consecutiveFailures: 0,
     });
 
     // Memory entries are keyed by userId, not threadId — nothing to move
@@ -308,6 +309,7 @@ export const nukeUserData = internalMutation({
       isAgentRunning: false,
       pendingMessageText: undefined,
       memoryNudgeCount: 0,
+      consecutiveFailures: 0,
     });
 
     return oldThreadId;
@@ -457,6 +459,35 @@ export const isAgentRunning = internalQuery({
       .withIndex("by_threadId", q => q.eq("threadId", args.threadId))
       .first();
     return user?.isAgentRunning ?? false;
+  },
+});
+
+export const incrementConsecutiveFailures = internalMutation({
+  args: { threadId: v.string() },
+  handler: async (ctx, { threadId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .first();
+    if (user) {
+      const current = user.consecutiveFailures || 0;
+      await ctx.db.patch(user._id, { consecutiveFailures: current + 1 });
+      return current + 1;
+    }
+    return 1;
+  },
+});
+
+export const resetConsecutiveFailures = internalMutation({
+  args: { threadId: v.string() },
+  handler: async (ctx, { threadId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .first();
+    if (user) {
+      await ctx.db.patch(user._id, { consecutiveFailures: 0 });
+    }
   },
 });
 

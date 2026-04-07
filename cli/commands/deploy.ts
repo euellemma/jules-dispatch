@@ -6,6 +6,7 @@ import {
   runConvexDeploy,
   buildAndUploadWeb,
   setupTelegramWebhook,
+  setConvexEnvVars,
   parseDeployKey,
 } from "../utils/deploy.js";
 import { promptForDeployKey } from "../steps/convex.js";
@@ -53,6 +54,23 @@ export async function runDeployCommand(): Promise<void> {
 
   if (success) {
     s.stop(c.green("Backend deployed successfully!"));
+
+    // Set environment variables on the Convex deployment
+    if (keyInfo) {
+      s.start("Configuring deployment environment...");
+      const envSuccess = setConvexEnvVars(installPath, {
+        CONVEX_URL: keyInfo.convexUrl,
+        CONVEX_SITE_URL: keyInfo.convexSiteUrl,
+      });
+      if (envSuccess) {
+        s.stop(c.green("Environment configured!"));
+      } else {
+        s.stop(c.yellow("Environment configuration had issues"));
+        p.log.warn(c.yellow("Some env vars may not have been set. Run manually:"));
+        info(`  npx convex env set CONVEX_URL=${keyInfo.convexUrl} --prod`);
+        info(`  npx convex env set CONVEX_SITE_URL=${keyInfo.convexSiteUrl} --prod`);
+      }
+    }
 
     // Build and upload web UI
     console.log();

@@ -34,6 +34,7 @@ export default defineSchema({
     updateNotificationsEnabled: v.optional(v.boolean()), // User opt-in for update notifications
     lastNotifiedVersion: v.optional(v.string()), // Last version user was notified about
     memoryNudgeCount: v.optional(v.number()), // Turns since last memory nudge (persisted)
+    consecutiveFailures: v.optional(v.number()), // For exponential backoff on LLM errors
     providerConfig: v.optional(
       v.object({
         endpoint: v.string(),

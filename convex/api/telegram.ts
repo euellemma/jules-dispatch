@@ -4,8 +4,16 @@ import { internal } from "../_generated/api";
 import { v } from "convex/values";
 import { julesAgent, resolveLanguageModel } from "../agent/instance";
 import { chunkHtml } from "./utils";
-import { withRetry } from "../utils/retry";
+import { withRetry, isNonRetriableError } from "../utils/retry";
 import { INITIAL_CONFIG, isConfigured } from "../config/initial";
+
+const MAX_BACKOFF_DELAY_MS = 60_000;
+const BASE_RETRY_DELAY_MS = 5_000;
+
+function getBackoffDelayMs(consecutiveFailures: number): number {
+  const delay = BASE_RETRY_DELAY_MS * Math.pow(2, Math.max(0, consecutiveFailures - 1));
+  return Math.min(delay, MAX_BACKOFF_DELAY_MS);
+}
 
 async function telegramApiCall(endpoint: string, body: object): Promise<any> {
   const botToken = INITIAL_CONFIG.telegramBotToken;
@@ -442,6 +450,11 @@ async function queueMessage(
     text,
   });
 
+  // Reset backoff on fresh user input — user is actively engaging
+  await ctx.runMutation(internal.users.db.resetConsecutiveFailures, {
+    threadId,
+  });
+
   const isRunning = await ctx.runQuery(internal.users.db.isAgentRunning, {
     threadId,
   });
@@ -513,47 +526,48 @@ export const processMessageQueue = internalAction({
       await ctx.runMutation(internal.users.db.clearPendingMessages, {
         threadId,
       });
+      await ctx.runMutation(internal.users.db.resetConsecutiveFailures, {
+        threadId,
+      });
       await sendTelegramChatAction(telegramChatId, "cancel");
     } catch (error: any) {
       console.error("[processMessageQueue] Error:", error);
       await sendTelegramChatAction(telegramChatId, "cancel");
       const errorMessage = error?.message || String(error);
 
-      let tip =
-        "<i>You can change your AI provider or model by using /connect. Your message is saved and will resume once you update your settings.</i>";
+      if (isNonRetriableError(error)) {
+        await sendTelegramMessage(
+          telegramChatId,
+          `❌ <b>Error:</b> ${errorMessage}\n\n<i>Your message is saved. Once you fix the issue (e.g. via /connect), send any message to resume.</i>`,
+        );
+      } else {
+        const failures = await ctx.runMutation(
+          internal.users.db.incrementConsecutiveFailures,
+          { threadId },
+        );
+        const delayMs = getBackoffDelayMs(failures);
 
-      if (
-        errorMessage.includes("Provider not configured") ||
-        errorMessage.includes("API key")
-      ) {
-        tip =
-          "<b>Tip:</b> Your AI provider might be misconfigured. Use /connect to check your settings.";
-      } else if (errorMessage.includes("Jules API key")) {
-        tip =
-          "<b>Tip:</b> Your Jules API key is missing or invalid. Use /connect to set it up.";
+        let tip =
+          "<i>You can change your AI provider or model by using /connect. Your message is saved and will resume once you update your settings.</i>";
+        if (errorMessage.includes("Jules API key")) {
+          tip = "<b>Tip:</b> Your Jules API key is missing or invalid. Use /connect to set it up.";
+        }
+
+        await sendTelegramMessage(
+          telegramChatId,
+          `❌ <b>Error:</b> ${errorMessage}\n\n${tip}`,
+        );
+
+        await ctx.scheduler.runAfter(delayMs, internal.api.telegram.processMessageQueue, {
+          threadId,
+          telegramChatId,
+        });
       }
-
-      await sendTelegramMessage(
-        telegramChatId,
-        `❌ <b>Error:</b> ${errorMessage}\n\n${tip}`,
-      );
-      // NOTE: We do NOT clearPendingMessages here, so it stays for recovery.
     } finally {
       await ctx.runMutation(internal.users.db.setAgentRunning, {
         threadId,
         isRunning: false,
       });
-
-      const newPending = await ctx.runQuery(
-        internal.users.db.getPendingMessages,
-        { threadId },
-      );
-      if (newPending && newPending.trim() !== "") {
-        await ctx.scheduler.runAfter(0, internal.api.telegram.processMessageQueue, {
-          threadId,
-          telegramChatId,
-        });
-      }
     }
   },
 });
