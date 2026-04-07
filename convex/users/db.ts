@@ -15,7 +15,7 @@ export const getOrCreateUserThread = internalMutation({
       return user.threadId;
     }
 
-    const threadId = await createThread(ctx, components.agent);
+    const threadId = await createThread(ctx, components.agent, { userId: telegramChatId });
     await ctx.db.insert("users", {
       telegramChatId,
       threadId: threadId,
@@ -33,7 +33,7 @@ export const clearUserThread = internalMutation({
       .first();
 
     if (user) {
-      const threadId = await createThread(ctx, components.agent);
+      const threadId = await createThread(ctx, components.agent, { userId: telegramChatId });
       await ctx.db.patch(user._id, { threadId: threadId });
       return true;
     }
@@ -158,7 +158,7 @@ export const updateProviderConfig = internalMutation({
         });
       }
     } else {
-      const threadId = await createThread(ctx, components.agent);
+      const threadId = await createThread(ctx, components.agent, { userId: args.telegramChatId });
       await ctx.db.insert("users", {
         telegramChatId: args.telegramChatId,
         threadId,
@@ -223,10 +223,10 @@ export const consumeAuthSession = internalMutation({
 
 /**
  * Cycle the thread for a user.
- * Optional: Preserve observational memory by linking it to the new threadId.
+ * Memory entries are keyed by userId (not threadId), so they persist automatically.
  */
 export const cycleUserThread = internalMutation({
-  args: { telegramChatId: v.string(), preserveMemory: v.boolean() },
+  args: { telegramChatId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.db
       .query("users")
@@ -236,26 +236,16 @@ export const cycleUserThread = internalMutation({
     if (!user) return null;
 
     const oldThreadId = user.threadId;
-    const newThreadId = await createThread(ctx, components.agent);
+    const newThreadId = await createThread(ctx, components.agent, { userId: args.telegramChatId });
 
-    // 1. Update user record
-    await ctx.db.patch(user._id, { 
+    await ctx.db.patch(user._id, {
       threadId: newThreadId,
       isAgentRunning: false,
-      pendingMessageText: undefined
+      pendingMessageText: undefined,
     });
 
-    // 2. Handle Observational Memory
-    const memory = await ctx.db
-      .query("observationalMemory")
-      .withIndex("by_threadId", (q) => q.eq("threadId", oldThreadId))
-      .first();
-
-    if (memory && args.preserveMemory) {
-      await ctx.db.patch(memory._id, { threadId: newThreadId });
-    } else if (memory) {
-      await ctx.db.delete(memory._id);
-    }
+    // Memory entries are keyed by userId, not threadId — nothing to move
+    // Thread summaries stay with old thread (it's history)
 
     return { oldThreadId, newThreadId };
   },
@@ -263,7 +253,7 @@ export const cycleUserThread = internalMutation({
 
 /**
  * Completely wipe all data for a user except their providerConfig.
- * Deletes ALL data from tasks, julesSessions, sessionOutputs, observationalMemory, and uploadedFiles.
+ * Deletes ALL data from tasks, julesSessions, sessionOutputs, memoryEntries, threadSummaries, and uploadedFiles.
  */
 export const nukeUserData = internalMutation({
   args: { telegramChatId: v.string() },
@@ -295,9 +285,13 @@ export const nukeUserData = internalMutation({
       }
     }
 
-    // 4. Delete ALL observationalMemory (single-user setup)
-    const allMemory = await ctx.db.query("observationalMemory").collect();
-    for (const m of allMemory) await ctx.db.delete(m._id);
+    // 4. Delete ALL memoryEntries (single-user setup)
+    const allMemoryEntries = await ctx.db.query("memoryEntries").collect();
+    for (const m of allMemoryEntries) await ctx.db.delete(m._id);
+
+    // 4b. Delete ALL threadSummaries
+    const allSummaries = await ctx.db.query("threadSummaries").collect();
+    for (const s of allSummaries) await ctx.db.delete(s._id);
 
     // Note: uploadedFiles are deleted by deleteAllFiles in the action
     // so storage can also be cleaned up
@@ -308,11 +302,12 @@ export const nukeUserData = internalMutation({
     });
 
     // 6. Cycle thread
-    const newThreadId = await createThread(ctx, components.agent);
-    await ctx.db.patch(user._id, { 
+    const newThreadId = await createThread(ctx, components.agent, { userId: args.telegramChatId });
+    await ctx.db.patch(user._id, {
       threadId: newThreadId,
       isAgentRunning: false,
-      pendingMessageText: undefined
+      pendingMessageText: undefined,
+      memoryNudgeCount: 0,
     });
 
     return oldThreadId;
@@ -490,7 +485,7 @@ export const seedFromInitial = internalMutation({
       return existing._id;
     }
 
-    const threadId = await createThread(ctx, components.agent);
+    const threadId = await createThread(ctx, components.agent, { userId: args.telegramChatId });
     await ctx.db.insert("users", {
       telegramChatId: args.telegramChatId,
       threadId,

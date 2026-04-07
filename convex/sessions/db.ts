@@ -1,6 +1,7 @@
 import { internalQuery, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 import { makeUniqueShortName } from "../vfs/pathUtils";
+import { internal } from "../_generated/api";
 
 export const addSession = internalMutation({
   args: {
@@ -332,5 +333,39 @@ export const getSessionOutputCounts = internalQuery({
       }
     }
     return counts;
+  },
+});
+
+/**
+ * Assign threadId to discovered sessions (threadId === "") and create task lists.
+ * Called during TRACK for sessions that may not have a thread yet.
+ * Also ensures task list exists for sessions that already have a threadId
+ * (e.g., re-tracked archived sessions whose task list was deleted on ARCHIVE).
+ */
+export const assignThreadAndInitTasks = internalMutation({
+  args: {
+    julesSessionIds: v.array(v.string()),
+    threadId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const allSessions = await ctx.db.query("julesSessions").collect();
+    const matching = allSessions.filter(s =>
+      args.julesSessionIds.includes(s.julesSessionId)
+    );
+
+    for (const session of matching) {
+      // Assign threadId to discovered sessions that don't have one yet
+      if (session.threadId === "") {
+        await ctx.db.patch(session._id, { threadId: args.threadId });
+      }
+
+      // Ensure task list exists (idempotent via upsert)
+      const effectiveThreadId = session.threadId || args.threadId;
+      await ctx.runMutation(internal.tasks.upsertTasks, {
+        threadId: effectiveThreadId,
+        key: `session:${session.julesSessionId}:tasks`,
+        content: "(auto-created at track time — use update_task_list to set a plan)",
+      });
+    }
   },
 });

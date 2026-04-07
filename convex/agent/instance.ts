@@ -7,27 +7,6 @@ import { resolveLanguageModel } from "./modelResolver";
 
 export { resolveLanguageModel };
 
-interface MemoryDoc {
-  activeObservations?: string;
-  lastObservedAt: number;
-}
-
-interface JulesSession {
-  julesSessionId: string;
-  shortName?: string;
-  lastKnownState?: string;
-  inDashboard: boolean;
-  acknowledged: boolean;
-  repo?: string;
-  origin?: string;
-  prefs?: {
-    approval?: string;
-    verbosity?: string;
-  };
-  lastActivity?: string;
-  outputCount: number;
-}
-
 interface FileDoc {
   _id: string;
   originalName: string;
@@ -42,55 +21,65 @@ interface TaskDoc {
   content: string;
 }
 
+interface MemoryEntry {
+  content: string;
+}
+
+interface ThreadSummary {
+  summary: string;
+}
+
 export const unifiedContextHandler: ContextHandler = async (ctx, args) => {
-  const { threadId, allMessages } = args;
-  if (!threadId) return allMessages;
+  const { threadId, userId, recent, search } = args;
+  if (!threadId) return recent;
+  if (!userId) return [...search, ...recent];
+
+  const telegramChatId = userId;
 
   // Fetch all context data in parallel
-  const [memory, sessions, tasks, files, sessionFileCounts] = await Promise.all([
-    ctx.runQuery(internal.memory.db.getMemory, {
-      threadId,
-    }) as Promise<MemoryDoc | null>,
-    ctx.runQuery(internal.sessions.db.getAllSessions, {}) as Promise<
-      JulesSession[]
-    >,
-    ctx.runQuery(internal.tasks.listTasksForThread, { threadId }) as Promise<
-      TaskDoc[]
-    >,
-    ctx.runQuery(internal.files.db.getThreadFiles, { threadId }) as Promise<
-      FileDoc[]
-    >,
-    ctx.runQuery(internal.sessions.db.getSessionOutputCounts, { threadId }) as Promise<
-      Record<string, number>
-    >,
+  const [memoryEntries, userEntries, threadSummary, sessions, tasks, files, sessionFileCounts, nudgeCount] = await Promise.all([
+    ctx.runQuery(internal.memory.db.getEntries, { userId: telegramChatId, target: "memory" }),
+    ctx.runQuery(internal.memory.db.getEntries, { userId: telegramChatId, target: "user" }),
+    ctx.runQuery(internal.memory.db.getThreadSummary, { threadId }),
+    ctx.runQuery(internal.sessions.db.getAllSessions, {}),
+    ctx.runQuery(internal.tasks.listTasksForThread, { threadId }),
+    ctx.runQuery(internal.files.db.getThreadFiles, { threadId }),
+    ctx.runQuery(internal.sessions.db.getSessionOutputCounts, { threadId }),
+    ctx.runQuery(internal.memory.db.getNudgeCount, { telegramChatId }),
   ]);
-
-  // Initialize memory if needed
-  if (!memory) {
-    await ctx.runMutation(internal.memory.db.initializeMemory, { threadId });
-  }
-
-  // Schedule observation compaction (fire-and-forget)
-  ctx.runMutation(internal.memory.processor.scheduleObservation, { threadId });
-
-  // Filter messages based on memory's lastObservedAt
-  const filteredMessages = (allMessages as any[]).filter((m) => {
-    if (!m._creationTime) return true;
-    return m._creationTime > (memory?.lastObservedAt || 0);
-  });
 
   // Build context messages
   const contextMessages: Array<{ role: "user"; content: string }> = [];
 
-  // 1. Memory observations
-  if (memory?.activeObservations) {
+  // 1. Thread summary (compacted older conversation)
+  if (threadSummary?.summary) {
     contextMessages.push({
       role: "user",
-      content: `# Observations (Summary of earlier conversation)\n${memory.activeObservations}`,
+      content: `### CONTEXT SUMMARY (earlier conversation compacted)\n${threadSummary.summary}`,
     });
   }
 
-  // 2. My list
+  // 2. Memory entries (agent's curated notes)
+  if (memoryEntries.length > 0) {
+    const content = memoryEntries.map(e => e.content).join("\n\u00a7\n");
+    const pct = Math.round((content.length / 2200) * 100);
+    contextMessages.push({
+      role: "user",
+      content: `### MEMORY (your personal notes) [${Math.min(100, pct)}% \u2014 ${content.length.toLocaleString()}/2,200 chars]\n${content}`,
+    });
+  }
+
+  // 3. User profile entries
+  if (userEntries.length > 0) {
+    const content = userEntries.map(e => e.content).join("\n\u00a7\n");
+    const pct = Math.round((content.length / 1375) * 100);
+    contextMessages.push({
+      role: "user",
+      content: `### USER PROFILE (who the user is) [${Math.min(100, pct)}% \u2014 ${content.length.toLocaleString()}/1,375 chars]\n${content}`,
+    });
+  }
+
+  // 4. My list
   const dashboardSessions = sessions.filter((s) => s.inDashboard);
   if (dashboardSessions.length > 0) {
     const rows = dashboardSessions
@@ -110,9 +99,19 @@ export const unifiedContextHandler: ContextHandler = async (ctx, args) => {
     });
   }
 
-  // 3. Tasks
-  if (tasks.length > 0) {
-    const formattedTasks = tasks
+  // 5. Tasks (filter out archived session tasks)
+  const trackedIds = new Set(
+    sessions.filter((s) => s.inDashboard).map((s) => s.julesSessionId),
+  );
+  const visibleTasks = tasks.filter((t: TaskDoc) => {
+    if (!t.key.startsWith("session:")) return true; // global tasks always visible
+    const parts = t.key.split(":");
+    if (parts.length < 2) return true;
+    return trackedIds.has(parts[1]!);
+  });
+
+  if (visibleTasks.length > 0) {
+    const formattedTasks = visibleTasks
       .map((t) => `[KEY: ${t.key}]\n${t.content}`)
       .join("\n\n---\n\n");
     contextMessages.push({
@@ -121,7 +120,33 @@ export const unifiedContextHandler: ContextHandler = async (ctx, args) => {
     });
   }
 
-  // 4. Inbox (unregistered files only)
+  // 5b. Prompt main agent to create task lists for tracked sessions without them
+  const sessionTaskKeys = new Set(
+    tasks
+      .filter((t: TaskDoc) => t.key.startsWith("session:"))
+      .map((t: TaskDoc) => {
+        const parts = t.key.split(":");
+        return parts.length >= 2 ? parts[1]! : "";
+      })
+      .filter(Boolean),
+  );
+  const sessionsWithoutTasks = dashboardSessions.filter(
+    (s) => !sessionTaskKeys.has(s.julesSessionId),
+  );
+  if (sessionsWithoutTasks.length > 0) {
+    const lines = sessionsWithoutTasks
+      .map(
+        (s) =>
+          `- ${s.shortName || s.julesSessionId.slice(0, 8)}: Use update_task_list(key: "session:${s.julesSessionId}:tasks", content: "...") to create a plan.`,
+      )
+      .join("\n");
+    contextMessages.push({
+      role: "user",
+      content: `### SESSIONS WITHOUT TASK LISTS\n${lines}`,
+    });
+  }
+
+  // 6. Inbox (unregistered files only)
   const unregisteredFiles = files.filter((f) => f.status === "unregistered");
   if (unregisteredFiles.length > 0) {
     let inboxMsg = `### INBOX\nUnregistered files. Use vfs(action: "register", ...) to rename them.\n\n`;
@@ -136,21 +161,34 @@ export const unifiedContextHandler: ContextHandler = async (ctx, args) => {
     });
   }
 
-  // 5. Pre-call notifications for slow tools
+  // 7. Memory nudge
+  if ((nudgeCount ?? 0) >= 10) {
+    await ctx.runMutation(internal.memory.db.resetNudgeCounter, { telegramChatId });
+    contextMessages.push({
+      role: "user",
+      content: `[System: Review the conversation so far. Have you learned anything worth saving? Use the memory tool to add/update entries. Focus on: user preferences, corrections, environment facts, project conventions, decisions made. Skip: task progress, session outcomes, temporary state.]`,
+    });
+  } else {
+    // Increment counter (fire-and-forget)
+    ctx.runMutation(internal.memory.db.incrementNudgeCounter, { telegramChatId });
+  }
+
+  // 8. Pre-call notifications for slow tools
   contextMessages.push({
     role: "user",
     content: `### SLOW TOOLS
 Before calling these, send a brief message_user notification:
-- research → "Searching..."
-- vfs send → "Sending..."
-- query_sessions → "Checking..."
-Pattern: notify → call tool → respond naturally.
+- research \u2192 "Searching..."
+- vfs send \u2192 "Sending..."
+- query_sessions \u2192 "Checking..."
+Pattern: notify \u2192 call tool \u2192 respond naturally.
 
 You MUST use the message_user tool for EVERY SINGLE RESPONSE. Direct output is captured as internal notes, not shown to the user. If you don't use message_user, the user won't see your response.
 `,
   });
 
-  return [...filteredMessages, ...contextMessages];
+  // Combine: search results + recent messages + context
+  return [...search, ...recent, ...contextMessages];
 };
 
 export const julesAgent = new Agent(components.agent, {
@@ -161,6 +199,17 @@ export const julesAgent = new Agent(components.agent, {
   instructions: systemInstructions,
   contextHandler: unifiedContextHandler,
   maxSteps: 50,
+  contextOptions: {
+    recentMessages: 50,
+    searchOptions: {
+      limit: 5,
+      textSearch: true,
+      vectorSearch: false,
+      messageRange: { before: 1, after: 1 },
+    },
+    searchOtherThreads: true,
+    excludeToolMessages: false,
+  },
   tools: {
     create_session: tools.create_session,
     message_jules: tools.message_jules,
@@ -172,5 +221,6 @@ export const julesAgent = new Agent(components.agent, {
     research: tools.research,
     message_user: tools.message_user,
     query_sessions: tools.query_sessions,
+    memory: tools.memory,
   },
 });

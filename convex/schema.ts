@@ -33,6 +33,7 @@ export default defineSchema({
     exaApiKey: v.optional(v.string()),
     updateNotificationsEnabled: v.optional(v.boolean()), // User opt-in for update notifications
     lastNotifiedVersion: v.optional(v.string()), // Last version user was notified about
+    memoryNudgeCount: v.optional(v.number()), // Turns since last memory nudge (persisted)
     providerConfig: v.optional(
       v.object({
         endpoint: v.string(),
@@ -93,12 +94,27 @@ export default defineSchema({
     .index("by_threadId", ["threadId"])
     .index("by_thread_and_status", ["threadId", "status"]),
 
-  observationalMemory: defineTable({
+  memoryEntries: defineTable({
+    userId: v.string(),           // telegramChatId — per-user, not per-thread
+    target: v.union(v.literal("memory"), v.literal("user")),
+    content: v.string(),          // single entry, can be multiline
+    createdAt: v.number(),
+  }).index("by_user_and_target", ["userId", "target"]),
+
+  threadSummaries: defineTable({
     threadId: v.string(),
-    activeObservations: v.string(),
-    lastObservedAt: v.number(),
-    observationTokenCount: v.number(),
+    summary: v.string(),           // LLM-generated summary of compacted messages
+    summarizedUpToOrder: v.number(), // message order up to which we've summarized
+    createdAt: v.number(),
   }).index("by_threadId", ["threadId"]),
+
+  sessionActivities: defineTable({
+    julesSessionId: v.string(),
+    type: v.string(),
+    createTime: v.number(),
+    summary: v.string(),
+    filesChanged: v.optional(v.array(v.string())),
+  }).index("by_session", ["julesSessionId"]),
 
   authSessions: defineTable({
     token: v.string(), // UUID

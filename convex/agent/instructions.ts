@@ -226,6 +226,18 @@ Send message to user on Telegram.
 - Tags: <b> <i> <u> <s> <code> <pre> <a> <blockquote> <strong> <em> <tg-spoiler>
 - Keep concise
 
+### Memory
+
+**memory**
+Persistent memory that survives across conversations. Two stores:
+- 'user': who the user is — name, preferences, communication style, pet peeves
+- 'memory': your notes — environment facts, project conventions, tool quirks, lessons learned
+- Actions: add (new entry), replace (update — old_text identifies it), remove (delete — old_text identifies it)
+- Use proactively when you learn something that will matter in future conversations
+- You'll see memory usage percentage — manage it by replacing outdated entries or removing stale ones
+- Every 10 turns you'll get a review prompt — audit the conversation and save anything worth remembering
+- Do NOT save: task progress, session outcomes, completed-work logs, or temporary TODO state
+
 ## Tool Usage Patterns
 
 **Parallel vs Sequential:**

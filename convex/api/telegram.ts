@@ -302,9 +302,10 @@ async function handleTelegramCommand(
         chatId,
         "📖 <b>Jules Dispatch Help</b>\n\n" +
           "/connect - Configure your AI provider and API key\n" +
-          "/new - Start fresh, keep history (Facts)\n" +
-          "/compact - Summarize conversation memory\n" +
-          "/reset - NUCLEAR: Wipe all data and history\n" +
+          "/new - Start fresh conversation (keeps memory)\n" +
+          "/reset - Clear conversation only (keeps memory)\n" +
+          "/compact - Summarize older messages to save context\n" +
+          "/nuke - Nuclear: wipe ALL data (memory, tasks, files)\n" +
           "/start - Show welcome message\n\n" +
           "Simply send me a message or a file to get started!",
       );
@@ -327,7 +328,7 @@ async function handleTelegramCommand(
     case "/new":
       await sendTelegramMessage(
         chatId,
-        "🆕 <b>Starting fresh...</b> Wiping todos and files, but keeping our shared history.",
+        "🆕 <b>Starting fresh...</b> New conversation thread created. Your memory and user profile are preserved.",
       );
       await ctx.scheduler.runAfter(
         0,
@@ -339,15 +340,29 @@ async function handleTelegramCommand(
       return true;
 
     case "/reset":
+      await sendTelegramMessage(
+        chatId,
+        "🔄 <b>Resetting conversation...</b> Keeping your memory and user profile.",
+      );
+      await ctx.scheduler.runAfter(
+        0,
+        internal.users.actions.cycleThreadAction,
+        {
+          telegramChatId: chatId,
+        },
+      );
+      return true;
+
+    case "/nuke":
       await telegramApiCall("sendMessage", {
         chat_id: chatId,
-        text: "⚠️ <b>Reset All Data</b>\n\nThis will permanently delete ALL observational memory, tasks, and file history. Your API keys will be kept.\n\nAre you sure?",
+        text: "⚠️ <b>Nuke All Data</b>\n\nThis will permanently delete ALL memory, tasks, files, and conversation history. Your API keys will be kept.\n\nAre you sure?",
         parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
             [
               {
-                text: "Yes, reset everything",
+                text: "Yes, nuke everything",
                 callback_data: "nuke_confirm",
               },
               { text: "Cancel", callback_data: "nuke_cancel" },
@@ -360,10 +375,12 @@ async function handleTelegramCommand(
     case "/compact":
       await sendTelegramMessage(
         chatId,
-        "🧹 <b>Compacting conversation memory...</b>\n\nI am summarizing the middle of our conversation to save space while keeping the recent context fresh.",
+        "🧹 <b>Compacting conversation...</b>\n\nFirst saving important facts, then summarizing older messages.",
       );
-      await ctx.scheduler.runAfter(0, internal.memory.processor.compactMemory, {
+      // memoryFlush runs fact-saving then compaction sequentially
+      await ctx.scheduler.runAfter(0, internal.memory.compaction.memoryFlush, {
         threadId,
+        telegramChatId: chatId,
       });
       return true;
 
@@ -489,7 +506,7 @@ export const processMessageQueue = internalAction({
       const model = await resolveLanguageModel(ctx, threadId);
       await julesAgent.generateText(
         ctx,
-        { threadId },
+        { threadId, userId: telegramChatId },
         { model, prompt: batchPrompt },
       );
 

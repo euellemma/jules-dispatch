@@ -198,6 +198,13 @@ export const create_session = createTool({
         ...(args.prefs ? { prefs: args.prefs } : {}),
       });
 
+      // Auto-create task list for the new session
+      await ctx.runMutation(internal.tasks.upsertTasks, {
+        threadId: ctx.threadId,
+        key: `session:${res.id}:tasks`,
+        content: "(auto-created — use update_task_list to set a plan)",
+      });
+
       return `Session created successfully! Session ID: ${res.id}. Remember to note the session ID.`;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -270,6 +277,10 @@ export {
 } from "./exa_search";
 
 export { vfs } from "../vfs";
+
+export { memory } from "../memory/tool";
+
+export { createReportToOrchestratorTool } from "./reportToOrchestrator";
 
 /**
  * query_sessions — Browse and manage the user's Jules sessions.
@@ -478,6 +489,25 @@ export const manage_sessions = createTool({
         julesSessionIds: targetIds,
         updates,
       });
+
+      // Task list management for TRACK and ARCHIVE
+      if (args.action === "TRACK" && ctx.threadId) {
+        // Assign threadId to discovered sessions + create task lists for all
+        await ctx.runMutation(internal.sessions.db.assignThreadAndInitTasks, {
+          julesSessionIds: targetIds,
+          threadId: ctx.threadId,
+        });
+      }
+
+      if (args.action === "ARCHIVE" && ctx.threadId) {
+        // Delete task lists for archived sessions
+        for (const id of targetIds) {
+          await ctx.runMutation(internal.tasks.deleteTasksForSession, {
+            threadId: ctx.threadId,
+            julesSessionId: id,
+          });
+        }
+      }
 
       return `Successfully performed ${args.action} on ${targetIds.length} sessions.`;
     } catch (err: unknown) {

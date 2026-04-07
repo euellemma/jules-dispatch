@@ -57,6 +57,40 @@ export const deleteTasks = internalMutation({
   },
 });
 
+export const getTaskByKey = internalQuery({
+  args: {
+    threadId: v.string(),
+    key: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("tasks")
+      .withIndex("byThreadAndKey", (q) =>
+        q.eq("threadId", args.threadId).eq("key", args.key)
+      )
+      .unique();
+  },
+});
+
+export const deleteTasksForSession = internalMutation({
+  args: {
+    threadId: v.string(),
+    julesSessionId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const key = `session:${args.julesSessionId}:tasks`;
+    const existing = await ctx.db
+      .query("tasks")
+      .withIndex("byThreadAndKey", (q) =>
+        q.eq("threadId", args.threadId).eq("key", key)
+      )
+      .unique();
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    }
+  },
+});
+
 export const deleteTasksForThread = internalMutation({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {
