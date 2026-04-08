@@ -2,6 +2,8 @@ import * as p from "@clack/prompts";
 import { link } from "../ui.js";
 
 export async function runStepJules(): Promise<string> {
+  p.note("Make sure GitHub integration is enabled in your Jules settings", "Tip");
+
   const apiKey = await p.password({
     message: `Enter your Jules API key ${link("https://jules.google.com/settings/api")}`,
     mask: "•",

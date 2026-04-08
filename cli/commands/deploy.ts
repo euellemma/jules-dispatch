@@ -77,16 +77,16 @@ export async function runDeployCommand(): Promise<void> {
     s.start("Building and uploading web UI...");
     const webUploadSuccess = await buildAndUploadWeb(installPath);
 
-    if (webUploadSuccess) {
-      s.stop(c.green("Web UI deployed!"));
-    } else {
-      s.stop(c.yellow("Web UI upload failed"));
-      p.log.warn(
-        c.yellow("\n⚠️  Settings page may not work. You can retry with:"),
-      );
-      info(`  cd ${installPath}`);
-      info("  npm run deploy:web");
-    }
+      if (webUploadSuccess) {
+        s.stop(c.green("Web UI deployed!"));
+      } else {
+        s.stop(c.yellow("Web UI build/upload failed"));
+        p.log.warn(
+          c.yellow("\n⚠️  Settings page may not work. You can retry with:"),
+        );
+        info(`  cd ${installPath}`);
+        info("  npm run deploy:web");
+      }
 
     if (keyInfo) {
       writeEnvLocal(installPath, {

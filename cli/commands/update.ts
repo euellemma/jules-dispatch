@@ -146,7 +146,7 @@ export async function runUpdateCommand(): Promise<void> {
         if (webUploadSuccess) {
           s.stop(c.green("Web UI deployed!"));
         } else {
-          s.stop(c.yellow("Web UI upload failed"));
+          s.stop(c.yellow("Web UI build/upload failed"));
           p.log.warn(
             c.yellow("\n⚠️  Settings page may not work. You can retry with:"),
           );

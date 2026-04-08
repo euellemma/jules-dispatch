@@ -25,6 +25,20 @@ export async function runConvexDeploy(
 }
 
 export async function buildAndUploadWeb(installPath: string): Promise<boolean> {
+  // Build the web app first
+  const buildSuccess = await new Promise<boolean>((resolve) => {
+    const build = spawn("npm", ["run", "build:web"], {
+      cwd: installPath,
+      stdio: "inherit",
+      shell: true,
+    });
+    build.on("close", (code) => resolve(code === 0));
+  });
+
+  if (!buildSuccess) {
+    return false;
+  }
+
   return new Promise((resolve) => {
     const upload = spawn(
       "npx",
