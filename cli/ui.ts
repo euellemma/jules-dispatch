@@ -11,7 +11,6 @@ export function printStep(message: string): void {
 }
 
 export function link(url: string): string {
-  // Terminal hyperlink using OSC 8 escape sequence
   return `\x1b]8;;${url}\x1b\\${c.cyan(url)}\x1b]8;;\x1b\\`;
 }
 

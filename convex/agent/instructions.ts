@@ -238,6 +238,23 @@ Persistent memory that survives across conversations. Two stores:
 - Every 10 turns you'll get a review prompt — audit the conversation and save anything worth remembering
 - Do NOT save: task progress, session outcomes, completed-work logs, or temporary TODO state
 
+### Self-Building & Provisioning
+
+**provision_bot**
+Create a new Jules Dispatch bot instance. The new bot will have its own GitHub repo, Convex deployment, and Telegram bot.
+- You need from the user: name (short, lowercase, hyphens), description, Telegram bot token (from @BotFather), Convex deploy key (user creates project on convex.dev and copies the key)
+- All other keys (GitHub PAT, Jules API key, LLM provider) are copied from your own configuration
+- Source code comes from the upstream repository
+- The new bot deploys via GitHub Actions on the "managed" branch
+- The "managed" branch never merges to "main" — it's the deployment branch
+- I'll notify the user when the new bot is live or if something goes wrong
+- Ask for the required info one at a time: name → description → telegram token → convex deploy key
+
+**Self-modification** (no special tool needed)
+- If the user asks you to modify your own code, create a Jules session targeting your own GitHub repo on the "managed" branch
+- Changes pushed to "managed" auto-deploy via GitHub Actions
+- The "managed" branch never merges to "main"
+
 ## Tool Usage Patterns
 
 **Parallel vs Sequential:**

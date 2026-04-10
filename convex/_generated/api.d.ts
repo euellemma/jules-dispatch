@@ -24,8 +24,11 @@ import type * as memory_db from "../memory/db.js";
 import type * as memory_index from "../memory/index.js";
 import type * as memory_tool from "../memory/tool.js";
 import type * as polling_actions from "../polling/actions.js";
+import type * as polling_extractors from "../polling/extractors.js";
 import type * as sessions_actions from "../sessions/actions.js";
+import type * as sessions_activityStorage from "../sessions/activityStorage.js";
 import type * as sessions_db from "../sessions/db.js";
+import type * as sessions_sessionEventHandlerAgent from "../sessions/sessionEventHandlerAgent.js";
 import type * as sessions_sessionManager from "../sessions/sessionManager.js";
 import type * as sessions_sessionManagerAgent from "../sessions/sessionManagerAgent.js";
 import type * as sessions_storageActions from "../sessions/storageActions.js";
@@ -35,6 +38,7 @@ import type * as telegram_typingHeartbeat from "../telegram/typingHeartbeat.js";
 import type * as tools_exa_search from "../tools/exa_search.js";
 import type * as tools_index from "../tools/index.js";
 import type * as tools_nodeActions from "../tools/nodeActions.js";
+import type * as tools_reportToOrchestrator from "../tools/reportToOrchestrator.js";
 import type * as types_index from "../types/index.js";
 import type * as updater_actions from "../updater/actions.js";
 import type * as updater_fetch from "../updater/fetch.js";
@@ -49,6 +53,7 @@ import type * as vfs_pathUtils from "../vfs/pathUtils.js";
 import type * as vfs_resolver from "../vfs/resolver.js";
 import type * as vfs_tools from "../vfs/tools.js";
 import type * as vfs_types from "../vfs/types.js";
+import type * as wasmPoc from "../wasmPoc.js";
 
 import type {
   ApiFromModules,
@@ -73,8 +78,11 @@ declare const fullApi: ApiFromModules<{
   "memory/index": typeof memory_index;
   "memory/tool": typeof memory_tool;
   "polling/actions": typeof polling_actions;
+  "polling/extractors": typeof polling_extractors;
   "sessions/actions": typeof sessions_actions;
+  "sessions/activityStorage": typeof sessions_activityStorage;
   "sessions/db": typeof sessions_db;
+  "sessions/sessionEventHandlerAgent": typeof sessions_sessionEventHandlerAgent;
   "sessions/sessionManager": typeof sessions_sessionManager;
   "sessions/sessionManagerAgent": typeof sessions_sessionManagerAgent;
   "sessions/storageActions": typeof sessions_storageActions;
@@ -84,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   "tools/exa_search": typeof tools_exa_search;
   "tools/index": typeof tools_index;
   "tools/nodeActions": typeof tools_nodeActions;
+  "tools/reportToOrchestrator": typeof tools_reportToOrchestrator;
   "types/index": typeof types_index;
   "updater/actions": typeof updater_actions;
   "updater/fetch": typeof updater_fetch;
@@ -98,6 +107,7 @@ declare const fullApi: ApiFromModules<{
   "vfs/resolver": typeof vfs_resolver;
   "vfs/tools": typeof vfs_tools;
   "vfs/types": typeof vfs_types;
+  wasmPoc: typeof wasmPoc;
 }>;
 
 /**

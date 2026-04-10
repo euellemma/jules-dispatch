@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   ArrowLeft,
   Layers,
@@ -30,12 +30,12 @@ export function CustomBYOKCard({
   onCancel,
   onOpenPresets,
 }: Props) {
-  const [endpoint, setEndpoint] = useState(initialConfig?.endpoint || "");
-  const [model, setModel] = useState(initialConfig?.model || "");
-  const [apiKey, setApiKey] = useState(initialConfig?.apiKey || "");
+  const [endpoint, setEndpoint] = useState(initialConfig?.endpoint ?? "");
+  const [model, setModel] = useState(initialConfig?.model ?? "");
+  const [apiKey, setApiKey] = useState(initialConfig?.apiKey ?? "");
   const [sdkType, setSdkType] = useState<
     "openai" | "anthropic" | "google" | "openai-compatible"
-  >(initialConfig?.sdkType || "openai-compatible");
+  >(initialConfig?.sdkType ?? "openai-compatible");
 
   const [isSaving, setIsSaving] = useState(false);
   const [status, setStatus] = useState<
@@ -56,20 +56,14 @@ export function CustomBYOKCard({
   const isFormValid =
     endpoint && isValidUrl(endpoint) && model && apiKey.trim().length >= 1;
 
-  useEffect(() => {
-    if (initialConfig) {
-      setEndpoint(initialConfig.endpoint);
-      setModel(initialConfig.model);
-      setApiKey(initialConfig.apiKey);
-      setSdkType(initialConfig.sdkType);
-    }
-  }, [initialConfig]);
-
-  // Reset status if form changes
-  useEffect(() => {
+  const handleResetStatus = () => {
     setStatus("idle");
     setErrorMessage(null);
-  }, [endpoint, model, apiKey, sdkType]);
+  };
+
+  const handleFieldChange = () => {
+    handleResetStatus();
+  };
 
   const handleSaveFlow = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -78,7 +72,6 @@ export function CustomBYOKCard({
     setIsSaving(true);
     setErrorMessage(null);
 
-    // 1. Test Connection
     setStatus("testing");
     try {
       const config = { endpoint, model, apiKey, sdkType };
@@ -94,12 +87,9 @@ export function CustomBYOKCard({
         return;
       }
 
-      // 2. Save Configuration
       setStatus("saving");
       await onSave(config);
       setStatus("success");
-      // Success screen is usually handled by App.tsx viewState change,
-      // but we set success status here for completeness.
     } catch (err) {
       setStatus("error");
       setErrorMessage(
@@ -110,9 +100,9 @@ export function CustomBYOKCard({
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-2">
+    <div className="space-y-2">
       <button
-        className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 hover:text-slate-900"
+        className="p-2 hover:bg-gray-100 rounded-full transition-colors text-text-tertiary hover:text-text-primary"
         onClick={onCancel}
         aria-label="Go back"
       >
@@ -122,29 +112,29 @@ export function CustomBYOKCard({
       <div className="space-y-6">
         <button
           type="button"
-          className="w-full flex items-center gap-4 p-4 bg-transparent border border-slate-300 rounded-lg text-left hover:border-primary transition-all group"
+          className="w-full flex items-center gap-4 p-4 card card-hover text-left"
           onClick={onOpenPresets}
         >
-          <div className="bg-primary/10 text-primary p-2.5 rounded-lg group-hover:bg-primary/20 transition-colors">
+          <div className="bg-accent-bg text-primary p-2.5 rounded-lg">
             <Layers className="w-5 h-5" />
           </div>
           <div className="flex-1">
-            <div className="font-bold text-slate-900">Select providers</div>
-            <div className="text-xs text-slate-700 font-medium">
+            <div className="font-semibold text-text-primary">Select providers</div>
+            <div className="text-xs text-text-secondary font-medium">
               Choose from Google, Anthropic, and more
             </div>
           </div>
-          <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-primary transition-colors" />
+          <ChevronRight className="w-5 h-5 text-text-tertiary" />
         </button>
 
         <form
           onSubmit={handleSaveFlow}
-          className="space-y-5 bg-transparent p-6 rounded-lg border border-slate-200"
+          className="space-y-5 bg-card p-6 rounded-xl border border-border"
         >
           <div className="space-y-2">
             <label
               htmlFor="endpoint"
-              className="text-sm font-bold text-slate-800 flex items-center gap-2"
+              className="label flex items-center gap-2"
             >
               <Globe className="w-4 h-4 text-primary" />
               Base URL (Endpoint)
@@ -152,9 +142,9 @@ export function CustomBYOKCard({
             <input
               type="url"
               id="endpoint"
-              className="w-full px-4 py-3 bg-transparent border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all placeholder:text-slate-500 text-sm"
+              className="input"
               value={endpoint}
-              onChange={(e) => setEndpoint(e.target.value)}
+              onChange={(e) => { setEndpoint(e.target.value); handleFieldChange(); }}
               placeholder="https://api.example.com/v1"
               required
             />
@@ -164,16 +154,16 @@ export function CustomBYOKCard({
             <div className="space-y-2">
               <label
                 htmlFor="sdkType"
-                className="text-sm font-bold text-slate-800 flex items-center gap-2"
+                className="label flex items-center gap-2"
               >
                 <Layers className="w-4 h-4 text-primary" />
                 SDK Type
               </label>
               <select
                 id="sdkType"
-                className="w-full px-4 py-3 bg-transparent border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all text-sm appearance-none cursor-pointer"
+                className="input appearance-none cursor-pointer"
                 value={sdkType}
-                onChange={(e) => setSdkType(e.target.value as any)}
+                onChange={(e) => { setSdkType(e.target.value as "openai" | "anthropic" | "google" | "openai-compatible"); handleFieldChange(); }}
               >
                 <option value="openai-compatible">OpenAI-Compatible</option>
                 <option value="openai">OpenAI</option>
@@ -185,7 +175,7 @@ export function CustomBYOKCard({
             <div className="space-y-2">
               <label
                 htmlFor="model"
-                className="text-sm font-bold text-slate-800 flex items-center gap-2"
+                className="label flex items-center gap-2"
               >
                 <Cpu className="w-4 h-4 text-primary" />
                 Model Name
@@ -193,9 +183,9 @@ export function CustomBYOKCard({
               <input
                 type="text"
                 id="model"
-                className="w-full px-4 py-3 bg-transparent border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all placeholder:text-slate-500 text-sm"
+                className="input"
                 value={model}
-                onChange={(e) => setModel(e.target.value)}
+                onChange={(e) => { setModel(e.target.value); handleFieldChange(); }}
                 placeholder="gpt-4o"
                 required
               />
@@ -205,7 +195,7 @@ export function CustomBYOKCard({
           <div className="space-y-2">
             <label
               htmlFor="apiKey"
-              className="text-sm font-bold text-slate-800 flex items-center gap-2"
+              className="label flex items-center gap-2"
             >
               <Key className="w-4 h-4 text-primary" />
               API Key
@@ -214,15 +204,15 @@ export function CustomBYOKCard({
               <input
                 type={showApiKey ? "text" : "password"}
                 id="apiKey"
-                className="w-full px-4 py-3 pr-12 bg-transparent border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all placeholder:text-slate-500 text-sm"
+                className="input pr-12"
                 value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
+                onChange={(e) => { setApiKey(e.target.value); handleFieldChange(); }}
                 placeholder="••••••••••••••••"
                 required
               />
               <button
                 type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-primary transition-colors"
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-text-tertiary hover:text-primary transition-colors"
                 onClick={() => setShowApiKey(!showApiKey)}
               >
                 {showApiKey ? (
@@ -235,7 +225,7 @@ export function CustomBYOKCard({
           </div>
 
           {errorMessage && (
-            <div className="flex items-start gap-3 p-4 bg-rose-50/50 border border-rose-100 rounded-lg text-rose-700 text-sm animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-start gap-3 p-4 bg-red-50/50 border border-red-100 rounded-lg text-red-700 text-sm">
               <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
               <p>{errorMessage}</p>
             </div>
@@ -244,10 +234,10 @@ export function CustomBYOKCard({
           <div className="pt-4">
             <button
               type="submit"
-              className={`w-full flex items-center justify-center gap-2 py-4 rounded-lg font-black transition-all active:scale-[0.98] ${
+              className={`w-full flex items-center justify-center gap-2 py-4 rounded-lg font-bold transition-all active:scale-[0.98] ${
                 !isFormValid || isSaving
-                  ? "bg-slate-300 cursor-not-allowed opacity-50 text-white"
-                  : "bg-primary hover:bg-primary-hover text-white shadow-xl shadow-primary/20"
+                  ? "bg-gray-200 text-text-tertiary cursor-not-allowed"
+                  : "bg-primary hover:bg-primary-hover text-white shadow-lg"
               }`}
               disabled={isSaving || !isFormValid}
             >

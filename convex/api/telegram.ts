@@ -1,6 +1,7 @@
 "use node";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { logger } from "../utils/logger";
 import { v } from "convex/values";
 import { julesAgent, resolveLanguageModel } from "../agent/instance";
 import { chunkHtml } from "./utils";
@@ -238,7 +239,7 @@ export async function processTelegramUpdate(
         }
       }
     } catch (error) {
-      console.error("[telegram] Onboarding check failed:", error);
+      logger.error("[telegram] Onboarding check failed:", error);
     }
 
     if (message.document) {
@@ -284,7 +285,7 @@ export async function processTelegramUpdate(
 
     return { success: true, handled: true, threadId };
   } catch (error) {
-    console.error("[processTelegramUpdate] ERROR:", error);
+    logger.error("[processTelegramUpdate] ERROR:", error);
     return { success: false, error: String(error) };
   }
 }
@@ -517,6 +518,12 @@ export const processMessageQueue = internalAction({
               .join("\n");
 
       const model = await resolveLanguageModel(ctx, threadId);
+      
+      logger.info(`[processMessageQueue] Starting LLM generation`, {
+        threadId,
+        "ai.model": typeof model === "string" ? model : (model as any)?.model,
+      });
+
       await julesAgent.generateText(
         ctx,
         { threadId, userId: telegramChatId },
@@ -531,7 +538,7 @@ export const processMessageQueue = internalAction({
       });
       await sendTelegramChatAction(telegramChatId, "cancel");
     } catch (error: any) {
-      console.error("[processMessageQueue] Error:", error);
+      logger.error("[processMessageQueue] Error:", error);
       await sendTelegramChatAction(telegramChatId, "cancel");
       const errorMessage = error?.message || String(error);
 
@@ -581,7 +588,7 @@ export const sendChatMessage = internalAction({
         await sendTelegramMessage(args.chatId, chunk);
       }
     } catch (error) {
-      console.error("[sendChatMessage] Error sending message:", error);
+      logger.error("[sendChatMessage] Error sending message:", error);
       throw error;
     }
   },
@@ -611,7 +618,7 @@ export const sendChatDocument = internalAction({
         args.caption,
       );
     } catch (error) {
-      console.error("[sendChatDocument] Error sending document:", error);
+      logger.error("[sendChatDocument] Error sending document:", error);
       throw error;
     }
   },
@@ -669,14 +676,14 @@ export const downloadAndStoreFile = internalAction({
         );
       }
     } catch (error) {
-      console.error("[downloadAndStoreFile] ERROR:", error);
+      logger.error("[downloadAndStoreFile] ERROR:", error);
       try {
         await sendTelegramMessage(
           args.telegramChatId,
           `❌ Error uploading file "${args.fileName}": ${String(error)}`,
         );
       } catch (e) {
-        console.error(
+        logger.error(
           "[downloadAndStoreFile] Failed to send error message:",
           e,
         );

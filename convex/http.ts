@@ -2,6 +2,7 @@ import { httpRouter } from "convex/server";
 import type { GenericActionCtx } from "convex/server";
 import { httpAction } from "./_generated/server";
 import { internal, components } from "./_generated/api";
+import { logger } from "./utils/logger";
 import { registerStaticRoutes } from "@convex-dev/static-hosting";
 import type {
   SaveProviderConfigBody,
@@ -128,7 +129,7 @@ http.route({
         updateNotificationsEnabled: user,
       });
     } catch (error) {
-      console.error("[http] Config API error:", error);
+      logger.error("[http] Config API error:", error);
       return corsResponse({ error: "Error loading config" }, 500);
     }
   }),
@@ -226,12 +227,12 @@ http.route({
           message: `✅ <b>Provider Configured!</b>\nModel: <code>${model || "unknown"}</code>\nSDK: <code>${sdkType || "openai-compatible"}</code>`,
         });
       } catch (err) {
-        console.error("Failed to notify telegram:", err);
+        logger.error("Failed to notify telegram:", err);
       }
 
       return corsResponse({ success: true });
     } catch (error) {
-      console.error("[http] Save config error:", error);
+      logger.error("[http] Save config error:", error);
       return corsResponse({ error: "Error saving config" }, 500);
     }
   }),
@@ -266,7 +267,7 @@ http.route({
 
       return corsResponse(result);
     } catch (error) {
-      console.error("[http] Test connection error:", error);
+      logger.error("[http] Test connection error:", error);
       return corsResponse({ error: "Internal error" }, 500);
     }
   }),
@@ -295,7 +296,7 @@ http.route({
 
       return corsResponse({ success: true });
     } catch (error) {
-      console.error("[http] Save notifications error:", error);
+      logger.error("[http] Save notifications error:", error);
       return corsResponse(
         { error: "Error saving notification preference" },
         500,
@@ -317,10 +318,38 @@ http.route({
 
       return new Response(JSON.stringify(result), { status: 200 });
     } catch (error) {
-      console.error("[http] Telegram webhook error:", error);
+      logger.error("[http] Telegram webhook error:", error);
       return new Response("Error processing webhook", { status: 500 });
     }
   }),
+});
+
+// Executor IPC endpoint for Daytona sandbox tool calls
+http.route({
+  path: "/executor/ipc",
+  method: "POST",
+  handler: internal.executor.ipc.ipcEndpoint,
+});
+
+// Executor Bulk Sync endpoint (called from CLI with Bearer auth)
+http.route({
+  path: "/executor/sync",
+  method: "POST",
+  handler: internal.executor.db.bulkSyncHttp,
+});
+
+// Executor Bulk Sync with Replace (namespace-level replace semantics)
+http.route({
+  path: "/executor/sync/replace",
+  method: "POST",
+  handler: internal.executor.db.bulkSyncWithReplaceHttp,
+});
+
+// Executor Secrets Sync endpoint
+http.route({
+  path: "/executor/sync/secrets",
+  method: "POST",
+  handler: internal.executor.db.syncSecretsHttp,
 });
 
 http.route({

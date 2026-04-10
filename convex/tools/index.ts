@@ -3,6 +3,7 @@ import { z } from "zod";
 import { internal } from "../_generated/api";
 import { spawnSessionManagerAgent } from "../sessions/sessionManagerAgent";
 import { resolveLanguageModel } from "../agent/modelResolver";
+import { logger } from "../utils/logger";
 import type {
   SessionQueryResult,
   SessionInfo,
@@ -87,7 +88,7 @@ export const message_user = createTool({
   execute: async (ctx, args): Promise<string> => {
     try {
       if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
-      console.log(`[message_user] Sending message to Telegram (thread: ${ctx.threadId})`);
+      logger.tool(`[message_user] Sending message to Telegram`, { message: args.message.slice(0, 100) + "..." }, { threadId: ctx.threadId });
       const res = await ctx.runAction(
         internal.sessions.actions.sendTelegramMessage,
         {
@@ -96,15 +97,15 @@ export const message_user = createTool({
         },
       );
       if (res.success) {
-        console.log(`[message_user] Message sent successfully`);
+        logger.tool(`[message_user] Message sent successfully`, res, { threadId: ctx.threadId });
         return `Message successfully sent to the user on Telegram.`;
       } else {
-        console.error(`[message_user] Failed to send: ${res.error}`);
+        logger.error(`[message_user] Failed to send`, res.error, { threadId: ctx.threadId });
         return `Error sending message: ${res.error}`;
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[message_user] Unexpected error:`, msg);
+      logger.error(`[message_user] Unexpected error`, msg, { threadId: ctx.threadId });
       return `Error sending message: ${msg}`;
     }
   },
@@ -269,6 +270,8 @@ export const delete_task_list = createTool({
   },
 });
 
+export { execute_code } from "./executor";
+
 export {
   exa_search,
   exa_get_contents,
@@ -281,6 +284,8 @@ export { vfs } from "../vfs";
 export { memory } from "../memory/tool";
 
 export { createReportToOrchestratorTool } from "./reportToOrchestrator";
+
+export { provision_bot } from "./selfBuild";
 
 /**
  * query_sessions — Browse and manage the user's Jules sessions.

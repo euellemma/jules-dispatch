@@ -15,4 +15,10 @@ crons.interval(
   internal.updater.actions.checkForUpdates,
 );
 
+crons.interval(
+  "check-provisioned-bots",
+  { seconds: 60 },
+  internal.provisioning.polling.checkProvisionedBots,
+);
+
 export default crons;

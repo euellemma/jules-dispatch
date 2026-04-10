@@ -25,6 +25,8 @@ import {
 import { parseDeployKey, runConvexDeploy, buildAndUploadWeb, setupTelegramWebhook } from "./utils/deploy.js";
 import { runUpdateCommand } from "./commands/update.js";
 import { runDeployCommand } from "./commands/deploy.js";
+import { runSyncCommand } from "./commands/sync.js";
+import { cliLogger } from "./utils/logger.js";
 
 const program = new Command();
 
@@ -552,6 +554,18 @@ program
       await runDeployCommand();
     } catch (error) {
       handleError(error, "location");
+      process.exit(1);
+    }
+  });
+
+program
+  .command("sync")
+  .description("Sync local Executor tools and sources to Convex")
+  .action(async () => {
+    try {
+      await runSyncCommand();
+    } catch (error) {
+      cliLogger.error("Sync command failed", error instanceof Error ? error : new Error(String(error)));
       process.exit(1);
     }
   });

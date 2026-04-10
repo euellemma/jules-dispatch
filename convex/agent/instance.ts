@@ -4,6 +4,7 @@ import { systemInstructions } from "./instructions";
 import * as tools from "../tools";
 import { internal } from "../_generated/api";
 import { resolveLanguageModel } from "./modelResolver";
+import { logger } from "../utils/logger";
 
 export { resolveLanguageModel };
 
@@ -37,7 +38,7 @@ export const unifiedContextHandler: ContextHandler = async (ctx, args) => {
   const telegramChatId = userId;
 
   // Fetch all context data in parallel
-  const [memoryEntries, userEntries, threadSummary, sessions, tasks, files, sessionFileCounts, nudgeCount] = await Promise.all([
+  const [memoryEntries, userEntries, threadSummary, sessions, tasks, files, sessionFileCounts, nudgeCount, executorSources] = await Promise.all([
     ctx.runQuery(internal.memory.db.getEntries, { userId: telegramChatId, target: "memory" }),
     ctx.runQuery(internal.memory.db.getEntries, { userId: telegramChatId, target: "user" }),
     ctx.runQuery(internal.memory.db.getThreadSummary, { threadId }),
@@ -46,10 +47,35 @@ export const unifiedContextHandler: ContextHandler = async (ctx, args) => {
     ctx.runQuery(internal.files.db.getThreadFiles, { threadId }),
     ctx.runQuery(internal.sessions.db.getSessionOutputCounts, { threadId }),
     ctx.runQuery(internal.memory.db.getNudgeCount, { telegramChatId }),
+    ctx.runQuery(internal.executor.db.listKv, { userId: telegramChatId, namespace: "tools" }),
   ]);
 
   // Build context messages
   const contextMessages: Array<{ role: "user"; content: string }> = [];
+
+  // 0. Executor Capabilities (Connected Sources)
+  const sources = (executorSources || []) as any[];
+  if (sources.length > 0) {
+    const sourceList = sources.map(s => {
+      try {
+        const val = JSON.parse(s.value);
+        return `- ${s.key}: ${val.description || "No description"}`;
+      } catch {
+        return `- ${s.key}`;
+      }
+    }).join("\n");
+
+    contextMessages.push({
+      role: "user",
+      content: `### EXECUTOR CAPABILITIES
+You are connected to a remote Daytona Sandbox. Use the \`execute_code\` tool to run TypeScript.
+Connected Libraries (use via the 'tools' object):
+${sourceList}
+
+If you need to use an API, write code that calls the library. Example: \`return await tools.github.user.getAuthenticated();\`
+`,
+    });
+  }
 
   // 1. Thread summary (compacted older conversation)
   if (threadSummary?.summary) {
@@ -186,9 +212,20 @@ Pattern: notify \u2192 call tool \u2192 respond naturally.
 You MUST use the message_user tool for EVERY SINGLE RESPONSE. Direct output is captured as internal notes, not shown to the user. If you don't use message_user, the user won't see your response.
 `,
   });
+  }
 
   // Combine: search results + recent messages + context
-  return [...search, ...recent, ...contextMessages];
+  const finalMessages = [...search, ...recent, ...contextMessages];
+
+  // LOG CONTEXT SNAPSHOT (using standardized AI keys for Axiom)
+  logger.context(`Context Built for thread ${threadId}`, undefined, {
+    threadId,
+    userId: telegramChatId,
+    "ai.prompt": finalMessages,
+    // Note: Model is passed at generation time, so we log it then if available
+  });
+
+  return finalMessages;
 };
 
 export const julesAgent = new Agent(components.agent, {
@@ -219,8 +256,10 @@ export const julesAgent = new Agent(components.agent, {
     delete_task_list: tools.delete_task_list,
     vfs: tools.vfs,
     research: tools.research,
+    execute_code: tools.execute_code,
     message_user: tools.message_user,
     query_sessions: tools.query_sessions,
     memory: tools.memory,
+    provision_bot: tools.provision_bot,
   },
 });

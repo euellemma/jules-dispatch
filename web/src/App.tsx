@@ -37,7 +37,6 @@ function App() {
   const [previousViewState, setPreviousViewState] =
     useState<ViewState>("entry");
 
-  // Local state for Entry Screen
   const [julesKey, setJulesKey] = useState("");
   const [exaKey, setExaKey] = useState("");
   const [julesSaveStatus, setJulesSaveStatus] = useState<
@@ -112,7 +111,6 @@ function App() {
       });
   }, []);
 
-  // Debounced Save for Jules
   useEffect(() => {
     if (initialLoadRef.current || appStatus.status !== "ready") return;
     if (debouncedJulesKey === (appStatus.data.julesApiKey || "")) return;
@@ -131,7 +129,6 @@ function App() {
     save();
   }, [debouncedJulesKey, appStatus]);
 
-  // Debounced Save for Exa
   useEffect(() => {
     if (initialLoadRef.current || appStatus.status !== "ready") return;
     if (debouncedExaKey === (appStatus.data.exaApiKey || "")) return;
@@ -150,7 +147,6 @@ function App() {
     save();
   }, [debouncedExaKey, appStatus]);
 
-  // Save Notification Preference
   const handleNotificationChange = async (enabled: boolean) => {
     if (appStatus.status !== "ready") return;
     setNotificationsEnabled(enabled);
@@ -201,7 +197,7 @@ function App() {
     return (
       <div className="min-h-screen bg-accent-bg flex flex-col items-center justify-center p-6 text-center">
         <Loader2 className="w-10 h-10 text-primary animate-spin mb-4" />
-        <p className="text-slate-600 font-medium">Loading settings...</p>
+        <p className="text-text-secondary font-medium">Loading settings...</p>
       </div>
     );
   }
@@ -209,12 +205,12 @@ function App() {
   if (appStatus.status === "error") {
     return (
       <div className="min-h-screen bg-accent-bg flex flex-col items-center justify-center p-6 text-center">
-        <div className="bg-white p-8 rounded-lg shadow-sm border border-slate-200 max-w-md w-full">
-          <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-slate-900 mb-2">
+        <div className="bg-card p-8 rounded-xl border border-border max-w-md w-full">
+          <AlertCircle className="w-12 h-12 text-error mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-text-primary mb-2">
             Unable to Load Settings
           </h2>
-          <p className="text-slate-600">{appStatus.message}</p>
+          <p className="text-text-secondary">{appStatus.message}</p>
         </div>
       </div>
     );
@@ -226,12 +222,12 @@ function App() {
     switch (viewState) {
       case "entry":
         return (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="border-b border-slate-200 pb-4">
-              <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">
+          <div className="space-y-8">
+            <div className="border-b border-border pb-4">
+              <h1 className="text-3xl font-extrabold text-text-primary tracking-tight">
                 Settings
               </h1>
-              <p className="text-slate-500 mt-1">
+              <p className="text-text-secondary mt-1">
                 Configure your Jules AI experience.
               </p>
             </div>
@@ -241,7 +237,7 @@ function App() {
                 <div className="flex justify-between items-center">
                   <label
                     htmlFor="julesKey"
-                    className="text-sm font-bold text-slate-800 flex items-center gap-2"
+                    className="label flex items-center gap-2"
                   >
                     <ShieldCheck className="w-4 h-4 text-primary" />
                     Jules API Key
@@ -251,12 +247,12 @@ function App() {
                 <input
                   type="password"
                   id="julesKey"
-                  className="w-full px-4 py-3 bg-transparent border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all placeholder:text-slate-500"
+                  className="input"
                   value={julesKey}
                   onChange={(e) => setJulesKey(e.target.value)}
                   placeholder="Enter Jules API key"
                 />
-                <p className="text-xs text-slate-600 ml-1 font-medium">
+                <p className="text-xs text-text-tertiary ml-1 font-medium">
                   Required for coding sessions.
                 </p>
               </div>
@@ -265,7 +261,7 @@ function App() {
                 <div className="flex justify-between items-center">
                   <label
                     htmlFor="exaKey"
-                    className="text-sm font-bold text-slate-800 flex items-center gap-2"
+                    className="label flex items-center gap-2"
                   >
                     <Search className="w-4 h-4 text-primary" />
                     Exa API Key (Optional)
@@ -275,36 +271,36 @@ function App() {
                 <input
                   type="password"
                   id="exaKey"
-                  className="w-full px-4 py-3 bg-transparent border border-slate-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all placeholder:text-slate-500"
+                  className="input"
                   value={exaKey}
                   onChange={(e) => setExaKey(e.target.value)}
                   placeholder="Enter Exa API key"
                 />
-                <p className="text-xs text-slate-600 ml-1 font-medium">
+                <p className="text-xs text-text-tertiary ml-1 font-medium">
                   Enables researcher logic.
                 </p>
               </div>
 
               <button
-                className="w-full flex items-center gap-4 p-5 bg-transparent border border-slate-300 rounded-lg text-left hover:border-primary transition-all group"
+                className="w-full flex items-center gap-4 p-5 card card-hover text-left group"
                 onClick={() => setViewState("provider-setup")}
               >
-                <div className="bg-primary/10 text-primary p-3 rounded-lg group-hover:bg-primary/20 transition-colors">
+                <div className="bg-accent-bg text-primary p-3 rounded-lg group-hover:bg-accent-bg/80 transition-colors">
                   <Settings className="w-6 h-6" />
                 </div>
                 <div className="flex-1">
-                  <div className="font-bold text-slate-900">Setup provider</div>
-                  <div className="text-sm text-slate-700 font-medium">
+                  <div className="font-semibold text-text-primary">Setup provider</div>
+                  <div className="text-sm text-text-secondary font-medium">
                     Configure your LLM model and endpoint
                   </div>
                 </div>
-                <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-primary transition-colors" />
+                <ChevronRight className="w-5 h-5 text-text-tertiary group-hover:text-primary transition-colors" />
               </button>
 
-              <div className="border-t border-slate-200 pt-6">
+              <div className="border-t border-border pt-6">
                 <div className="flex items-start gap-4">
                   <div
-                    className={`p-3 rounded-lg ${notificationsEnabled ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}
+                    className={`p-3 rounded-lg transition-colors ${notificationsEnabled ? "bg-accent-bg text-primary" : "bg-gray-100 text-text-tertiary"}`}
                   >
                     {notificationsEnabled ? (
                       <Bell className="w-5 h-5" />
@@ -316,13 +312,13 @@ function App() {
                     <div className="flex items-center justify-between">
                       <label
                         htmlFor="notifications"
-                        className="font-bold text-slate-900 cursor-pointer"
+                        className="font-semibold text-text-primary cursor-pointer"
                       >
                         Update notifications
                       </label>
                       <SaveStatusIndicator status={notificationSaveStatus} />
                     </div>
-                    <p className="text-sm text-slate-600 mt-1 mb-3">
+                    <p className="text-sm text-text-secondary mt-1 mb-3">
                       Get notified about new releases via Telegram when minor or
                       major versions are available.
                     </p>
@@ -335,11 +331,11 @@ function App() {
                         handleNotificationChange(!notificationsEnabled)
                       }
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-                        notificationsEnabled ? "bg-primary" : "bg-slate-300"
+                        notificationsEnabled ? "bg-primary" : "bg-gray-300"
                       }`}
                     >
                       <span
-                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${
                           notificationsEnabled
                             ? "translate-x-6"
                             : "translate-x-1"
@@ -400,10 +396,10 @@ function SaveStatusIndicator({
     <span
       className={`flex items-center gap-1.5 text-xs font-semibold ${
         status === "saving"
-          ? "text-slate-600 italic"
+          ? "text-text-secondary italic"
           : status === "saved"
-            ? "text-emerald-600"
-            : "text-rose-600"
+            ? "text-success"
+            : "text-error"
       }`}
     >
       {status === "saving" && <Loader2 className="w-3 h-3 animate-spin" />}

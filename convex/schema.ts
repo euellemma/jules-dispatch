@@ -122,4 +122,48 @@ export default defineSchema({
     telegramChatId: v.string(),
     expiresAt: v.number(),
   }).index("by_token", ["token"]),
+
+  executor_kv: defineTable({
+    userId: v.string(),     // telegramChatId or unique user id
+    namespace: v.string(),  // e.g., "tools", "defs", "secrets" (refs)
+    key: v.string(),        // the unique identifier within the namespace
+    value: v.string(),      // JSON stringified metadata/definition
+  })
+    .index("by_user_ns_key", ["userId", "namespace", "key"])
+    .index("by_user_ns", ["userId", "namespace"]),
+
+  executor_secrets: defineTable({
+    userId: v.string(),
+    secretId: v.string(),
+    value: v.string(),      // The actual secret value (API key/token)
+  })
+    .index("by_user_secretId", ["userId", "secretId"]),
+
+  executor_sessions: defineTable({
+    userId: v.string(),
+    sandboxId: v.string(),
+    image: v.string(),
+    ipcToken: v.string(),
+    lastUsedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_ipcToken", ["ipcToken"]),
+
+  provisionedBots: defineTable({
+    ownerId: v.string(),
+    name: v.string(),
+    description: v.optional(v.string()),
+    githubRepo: v.string(),
+    convexSiteUrl: v.optional(v.string()),
+    status: v.string(),
+    sourceType: v.string(),
+    lastDeployStatus: v.optional(v.string()),
+    lastDeployCheckAt: v.optional(v.number()),
+    lastDeployWorkflowRunId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_ownerId", ["ownerId"])
+    .index("by_status", ["status"])
+    .index("by_githubRepo", ["githubRepo"]),
 });
