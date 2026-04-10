@@ -9,13 +9,13 @@ export interface InitialConfig {
 }
 
 export const INITIAL_CONFIG: InitialConfig = {
-  telegramBotToken: "",
-  julesApiKey: "",
-  exaApiKey: undefined,
-  llmEndpoint: "",
-  llmModel: "",
-  llmApiKey: "",
-  llmSdkType: "openai-compatible",
+  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || "",
+  julesApiKey: process.env.JULES_API_KEY || "",
+  exaApiKey: process.env.EXA_API_KEY || undefined,
+  llmEndpoint: process.env.LLM_ENDPOINT || "",
+  llmModel: process.env.LLM_MODEL || "",
+  llmApiKey: process.env.LLM_API_KEY || "",
+  llmSdkType: (process.env.LLM_SDK_TYPE as InitialConfig["llmSdkType"]) || "openai-compatible",
 };
 
 export function isConfigured(config: InitialConfig): boolean {

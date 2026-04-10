@@ -43,6 +43,7 @@ class Logger {
     const url = `https://api.axiom.co/v1/datasets/${AXIOM_DATASET}/ingest`;
 
     try {
+      /*
       // We use a fire-and-forget fetch approach in Convex to avoid blocking
       fetch(url, {
         method: "POST",
@@ -55,6 +56,7 @@ class Logger {
       }).catch((err) => {
         // Silent catch for Axiom ingestion errors to prevent recursion/noise
       });
+      */
     } catch (err) {
       // Silent catch
     }
@@ -94,10 +96,10 @@ class Logger {
     // 1. Structured Console Log
     this.formatConsole(entry);
 
-    // 2. Axiom Cloud Log (if configured)
-    if (AXIOM_API_KEY) {
-      this.sendToAxiom(entry);
-    }
+    // 2. Axiom Cloud Log (Disabled - Configure Axiom via Convex Dashboard Log Streaming instead)
+    // if (AXIOM_API_KEY) {
+    //   this.sendToAxiom(entry);
+    // }
   }
 
   info(msg: string, meta: Partial<LogEntry> = {}) {
