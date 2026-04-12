@@ -10,7 +10,6 @@ import {
   readHomeConfig,
   writeHomeConfig,
   writeEnvLocal,
-  writeInitialConfig,
 } from "./config.js";
 import { printBanner, printOutro, c as colors, info } from "./ui.js";
 import { handleError, WizardError, type WizardStep } from "./errors.js";
@@ -298,23 +297,24 @@ async function runFreshWizard(existingPath?: string): Promise<void> {
   try {
     writeHomeConfig(config);
 
-    // Write .env.local with Telegram bot token
-    writeEnvLocal(context.installPath!, {
+    // Write .env.local with all gathered API keys for local dev
+    const envUpdates: Record<string, string> = {
       TELEGRAM_BOT_TOKEN: context.telegramToken!,
-    });
-
-    // Write initial config to convex/config/initial.ts for user seeding
-    if (context.aiProvider && context.customApiKey) {
-      writeInitialConfig(context.installPath!, {
-        telegramBotToken: context.telegramToken!,
-        julesApiKey: context.julesApiKey!,
-        exaApiKey: context.exaApiKey,
-        llmEndpoint: context.aiProvider.endpoint,
-        llmModel: context.aiProvider.model,
-        llmApiKey: context.customApiKey,
-        llmSdkType: context.aiProvider.sdkType,
-      });
+      JULES_API_KEY: context.julesApiKey!,
+    };
+    
+    if (context.exaApiKey) {
+      envUpdates.EXA_API_KEY = context.exaApiKey;
     }
+    
+    if (context.aiProvider && context.customApiKey) {
+      envUpdates.LLM_ENDPOINT = context.aiProvider.endpoint;
+      envUpdates.LLM_MODEL = context.aiProvider.model;
+      envUpdates.LLM_API_KEY = context.customApiKey;
+      envUpdates.LLM_SDK_TYPE = context.aiProvider.sdkType;
+    }
+
+    writeEnvLocal(context.installPath!, envUpdates);
   } catch (error) {
     p.log.error(colors.red("Failed to save configuration:"));
     if (error instanceof Error) {

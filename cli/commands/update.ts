@@ -4,7 +4,7 @@ import * as path from "path";
 import { spawn } from "child_process";
 import { printBanner, c, link, info } from "../ui.js";
 import { handleError } from "../errors.js";
-import { readHomeConfig, writeHomeConfig, writeEnvLocal } from "../config.js";
+import { readHomeConfig, writeHomeConfig, writeEnvLocal, readEnvLocal } from "../config.js";
 import { downloadAndExtract } from "../utils/archive.js";
 import {
   runConvexDeploy,
@@ -125,9 +125,11 @@ export async function runUpdateCommand(): Promise<void> {
         const keyInfo = parseDeployKey(config.deployKey);
         if (keyInfo) {
           s.start("Configuring deployment environment...");
+          const localEnv = readEnvLocal(installPath);
           const envSuccess = setConvexEnvVars(installPath, {
             CONVEX_URL: keyInfo.convexUrl,
             CONVEX_SITE_URL: keyInfo.convexSiteUrl,
+            ...localEnv,
           });
           if (envSuccess) {
             s.stop(c.green("Environment configured!"));
@@ -201,9 +203,11 @@ export async function runUpdateCommand(): Promise<void> {
           const newKeyInfo = parseDeployKey(deployKey);
           if (newKeyInfo) {
             s.start("Configuring deployment environment...");
+            const localEnv = readEnvLocal(installPath);
             const envSuccess = setConvexEnvVars(installPath, {
               CONVEX_URL: newKeyInfo.convexUrl,
               CONVEX_SITE_URL: newKeyInfo.convexSiteUrl,
+              ...localEnv,
             });
             if (envSuccess) {
               s.stop(c.green("Environment configured!"));

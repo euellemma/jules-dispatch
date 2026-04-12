@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Fetch LLM calls from the Convex HTTP endpoint
+# HTTP actions are served on CONVEX_SITE_URL (.convex.site), not CONVEX_URL (.convex.cloud)
+
+ENV_FILE=".env.local"
+DEPLOY_KEY=$(grep '^CONVEX_DEPLOY_KEY=' "$ENV_FILE" | cut -d '=' -f2- | tr -d '"\r')
+
+if [ -z "$DEPLOY_KEY" ]; then
+    echo "Error: CONVEX_DEPLOY_KEY not found in $ENV_FILE"
+    exit 1
+fi
+
+SITE_URL=$(grep '^CONVEX_SITE_URL=' "$ENV_FILE" | cut -d '=' -f2- | tr -d '"\r')
+
+if [ -z "$SITE_URL" ]; then
+    echo "Error: CONVEX_SITE_URL not found in $ENV_FILE"
+    exit 1
+fi
+
+LIMIT=${1:-50}
+URL="${SITE_URL}/api/llmCalls?limit=${LIMIT}"
+
+curl -s "$URL" \
+    -H "Authorization: Bearer $DEPLOY_KEY" \
+    -H "Content-Type: application/json" | jq .

@@ -2,28 +2,30 @@ import { createTool } from "@convex-dev/agent";
 import { z } from "zod";
 import { internal } from "../_generated/api";
 
-export const memory = createTool({
+export const manage_memory = createTool({
   description:
     "Save durable information to persistent memory that survives across conversations. " +
     "Memory is injected into future turns, so keep it compact and focused on facts that will still matter later.\n\n" +
     "WHEN TO SAVE (do this proactively, don't wait to be asked):\n" +
     "- User corrects you or says 'remember this' / 'don't do that again'\n" +
     "- User shares a preference, habit, or personal detail (name, role, timezone, coding style)\n" +
-    "- You discover something about the environment (OS, installed tools, project structure)\n" +
-    "- You learn a convention, API quirk, or workflow specific to this user's setup\n" +
-    "- You identify a stable fact that will be useful again in future conversations\n\n" +
+    "FORMATTING:\n" +
+    "- Write concise, objective facts\n" +
+    "- Combine related facts into a single block using bullet points\n" +
+    "- There is no required file format or YAML structure. Just save the raw factual knowledge.\n\n" +
     "PRIORITY: User preferences and corrections > environment facts > procedural knowledge. " +
     "The most valuable memory prevents the user from having to repeat themselves.\n\n" +
     "Do NOT save task progress, session outcomes, completed-work logs, or temporary TODO state to memory.\n\n" +
-    "TWO TARGETS:\n" +
+    "TARGETS:\n" +
     "- 'user': who the user is \u2014 name, role, preferences, communication style, pet peeves\n" +
-    "- 'memory': your notes \u2014 environment facts, project conventions, tool quirks, lessons learned\n\n" +
+    "- 'memory': your notes \u2014 environment facts, project conventions, tool quirks, lessons learned\n" +
+    "- 'skills': your functional knowledge \u2014 how-tos for using specific native or executor tools, API nuances, and workflow steps\n\n" +
     "ACTIONS: add (new entry), replace (update existing \u2014 old_text identifies it), remove (delete \u2014 old_text identifies it).\n\n" +
     "SKIP: trivial/obvious info, things easily re-discovered, raw data dumps, and temporary task state.",
   inputSchema: z.object({
     action: z.enum(["add", "replace", "remove"]).describe("The action to perform."),
-    target: z.enum(["memory", "user"]).describe(
-      "Which memory store: 'memory' for personal notes, 'user' for user profile.",
+    target: z.enum(["memory", "user", "skills"]).describe(
+      "Which memory store: 'memory' for personal notes, 'user' for user profile, 'skills' for tool how-tos.",
     ),
     content: z.string().optional().describe(
       "The entry content. Required for 'add' and 'replace'.",
@@ -37,11 +39,6 @@ export const memory = createTool({
       if (!ctx.userId) {
         return JSON.stringify({ success: false, error: "No userId available. Memory requires a user context." });
       }
-
-      // Reset the nudge counter when the agent actually uses memory
-      await ctx.runMutation(internal.memory.db.resetNudgeCounter, {
-        telegramChatId: ctx.userId,
-      });
 
       if (args.action === "add") {
         if (!args.content) {

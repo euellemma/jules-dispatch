@@ -5,9 +5,12 @@ import { getJulesClient } from "../tools/nodeActions";
 import { internal } from "../_generated/api";
 import { withRetry } from "../utils/retry";
 
-async function getThreadIdForSession(ctx: any, sessionId: string): Promise<string | undefined> {
+async function getUserIdForSession(ctx: any, sessionId: string): Promise<string | undefined> {
   const session = await ctx.runQuery(internal.sessions.db.getSessionByJulesId, { julesSessionId: sessionId });
-  return session?.threadId;
+  if (session?.threadId) {
+    return await ctx.runQuery(internal.users.db.getChatIdForThread, { threadId: session.threadId });
+  }
+  return undefined;
 }
 
 export const createSession = internalAction({
@@ -26,7 +29,7 @@ export const createSession = internalAction({
   },
   handler: async (ctx, args) => {
     try {
-      const jules = await getJulesClient(ctx, args.threadId);
+      const jules = await getJulesClient(ctx, args.userId);
       const source = args.githubRepo && args.baseBranch ? {
         github: args.githubRepo,
         baseBranch: args.baseBranch
@@ -58,8 +61,8 @@ export const sendMessage = internalAction({
   args: { sessionId: v.string(), prompt: v.string() },
   handler: async (ctx, args) => {
     try {
-      const threadId = await getThreadIdForSession(ctx, args.sessionId);
-      const jules = await getJulesClient(ctx, threadId);
+      const userId = await getUserIdForSession(ctx, args.sessionId);
+      const jules = await getJulesClient(ctx, userId);
       await withRetry(async () => {
         const session = await jules.session(args.sessionId);
         await session.send(args.prompt);
@@ -80,8 +83,8 @@ export const approvePlan = internalAction({
   args: { sessionId: v.string() },
   handler: async (ctx, args) => {
     try {
-      const threadId = await getThreadIdForSession(ctx, args.sessionId);
-      const jules = await getJulesClient(ctx, threadId);
+      const userId = await getUserIdForSession(ctx, args.sessionId);
+      const jules = await getJulesClient(ctx, userId);
       await withRetry(async () => {
         const session = await jules.session(args.sessionId);
         await session.approve();
@@ -126,8 +129,8 @@ export const getSessionActivities = internalAction({
   args: { sessionId: v.string() },
   handler: async (ctx, args) => {
     try {
-      const threadId = await getThreadIdForSession(ctx, args.sessionId);
-      const jules = await getJulesClient(ctx, threadId);
+      const userId = await getUserIdForSession(ctx, args.sessionId);
+      const jules = await getJulesClient(ctx, userId);
       const session = await jules.session(args.sessionId);
       const { activities: activitiesResult } = await session.activities.list({});
       

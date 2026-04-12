@@ -15,7 +15,9 @@ export const INITIAL_CONFIG: InitialConfig = {
   llmEndpoint: process.env.LLM_ENDPOINT || "",
   llmModel: process.env.LLM_MODEL || "",
   llmApiKey: process.env.LLM_API_KEY || "",
-  llmSdkType: (process.env.LLM_SDK_TYPE as InitialConfig["llmSdkType"]) || "openai-compatible",
+  llmSdkType:
+    (process.env.LLM_SDK_TYPE as InitialConfig["llmSdkType"]) ||
+    "openai-compatible",
 };
 
 export function isConfigured(config: InitialConfig): boolean {

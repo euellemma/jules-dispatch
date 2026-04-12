@@ -44,9 +44,12 @@ export const clearUserThread = internalMutation({
 export const getChatIdForThread = internalQuery({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {
-    const user = await ctx.db.query("users")
+    let user = await ctx.db.query("users")
       .withIndex("by_threadId", q => q.eq("threadId", args.threadId))
       .first();
+    if (!user) {
+      user = await ctx.db.query("users").first();
+    }
     return user?.telegramChatId;
   }
 });
@@ -74,13 +77,14 @@ export const getAnyExistingUser = internalQuery({
   },
 });
 
-export const getProviderConfigByThreadId = internalQuery({
-  args: { threadId: v.string() },
+export const getProviderConfig = internalQuery({
+  args: { telegramChatId: v.string() },
   handler: async (ctx, args) => {
-    const user = await ctx.db
+    let user = await ctx.db
       .query("users")
-      .withIndex("by_threadId", (q) => q.eq("threadId", args.threadId))
+      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
       .first();
+    
     if (!user) return null;
     return {
       telegramChatId: user.telegramChatId,
@@ -389,10 +393,10 @@ export const updateLastSearchingSent = internalMutation({
 });
 
 export const getLastSearchingSent = internalQuery({
-  args: { threadId: v.string() },
+  args: { telegramChatId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.db.query("users")
-      .withIndex("by_threadId", q => q.eq("threadId", args.threadId))
+      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", args.telegramChatId))
       .first();
     return user?.lastSearchingSentAt;
   }
@@ -415,62 +419,62 @@ export const appendPendingMessage = internalMutation({
 });
 
 export const getPendingMessages = internalQuery({
-  args: { threadId: v.string() },
-  handler: async (ctx, { threadId }) => {
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, { telegramChatId }) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", telegramChatId))
       .first();
-    return user?.pendingMessageText || "";
-  },
+    return user?.pendingMessageText;
+  }
 });
 
 export const clearPendingMessages = internalMutation({
-  args: { threadId: v.string() },
-  handler: async (ctx, { threadId }) => {
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, { telegramChatId }) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", telegramChatId))
       .first();
     if (user) {
       await ctx.db.patch(user._id, { pendingMessageText: undefined });
     }
-  },
+  }
 });
 
 export const setAgentRunning = internalMutation({
-  args: { threadId: v.string(), isRunning: v.boolean() },
-  handler: async (ctx, { threadId, isRunning }) => {
+  args: { telegramChatId: v.string(), isRunning: v.boolean() },
+  handler: async (ctx, { telegramChatId, isRunning }) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", telegramChatId))
       .first();
     if (user) {
       await ctx.db.patch(user._id, { isAgentRunning: isRunning });
     }
-  },
+  }
 });
 
 export const isAgentRunning = internalQuery({
-  args: { threadId: v.string() },
+  args: { telegramChatId: v.string() },
   handler: async (ctx, args) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_threadId", q => q.eq("threadId", args.threadId))
+      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", args.telegramChatId))
       .first();
     return user?.isAgentRunning ?? false;
-  },
+  }
 });
 
 export const incrementConsecutiveFailures = internalMutation({
-  args: { threadId: v.string() },
-  handler: async (ctx, { threadId }) => {
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, { telegramChatId }) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", telegramChatId))
       .first();
     if (user) {
-      const current = user.consecutiveFailures || 0;
+      const current = user.consecutiveFailures ?? 0;
       await ctx.db.patch(user._id, { consecutiveFailures: current + 1 });
       return current + 1;
     }
@@ -479,13 +483,13 @@ export const incrementConsecutiveFailures = internalMutation({
 });
 
 export const resetConsecutiveFailures = internalMutation({
-  args: { threadId: v.string() },
-  handler: async (ctx, { threadId }) => {
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, { telegramChatId }) => {
     const user = await ctx.db
       .query("users")
-      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", telegramChatId))
       .first();
-    if (user) {
+    if (user && user.consecutiveFailures !== 0) {
       await ctx.db.patch(user._id, { consecutiveFailures: 0 });
     }
   },

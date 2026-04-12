@@ -18,16 +18,16 @@ export const provision_bot = createTool({
   execute: async (ctx, args): Promise<string> => {
     if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
 
-    logger.info("[provision_bot] Starting", { name: args.name, threadId: ctx.threadId });
+    logger.info("[provision_bot] Starting", { data: { name: args.name }, threadId: ctx.threadId });
 
     await ctx.runAction(internal.api.telegram.sendChatMessage, {
       chatId: ctx.threadId,
       message: `🚀 <b>Provisioning ${args.name}...</b>\n\nCreating GitHub repo, pushing source code, and setting up deployment. This takes 2-5 minutes. I'll let you know when it's live.`,
     });
 
-    const userId = ctx.threadId;
-    const user = await ctx.runQuery(internal.users.db.getProviderConfigByThreadId, {
-      threadId: userId,
+    const userId = ctx.userId || ctx.threadId;
+    const user = await ctx.runQuery(internal.users.db.getProviderConfig, {
+      telegramChatId: userId,
     });
 
     if (!user) {

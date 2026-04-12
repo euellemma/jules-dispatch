@@ -1,3 +1,4 @@
+"use node";
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
@@ -18,10 +19,9 @@ export const execute = internalAction({
     logger.info("Daytona execution requested", { threadId, data: { codeLength: args.code.length } });
 
     // 1. Resolve Daytona API Key
-    const user = await ctx.runQuery(internal.users.db.getProviderConfigByThreadId, { 
-      threadId 
-    }) as any;
-    
+    const user = await ctx.runQuery(internal.users.db.getProviderConfig, {
+      telegramChatId: args.userId,
+    }) as any;    
     const apiKey = user?.daytonaApiKey || process.env.DAYTONA_API_KEY;
     
     if (!apiKey) {

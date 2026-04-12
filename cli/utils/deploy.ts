@@ -68,6 +68,7 @@ export function setConvexEnvVars(
         cwd: installPath,
         stdio: "pipe",
         shell: true,
+        env: { ...process.env },
       });
     } catch {
       allSucceeded = false;

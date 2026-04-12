@@ -1,0 +1,29 @@
+#!/bin/bash
+
+# 1. Configuration
+LOG_DIR="./logs"
+CURRENT_LOG="$LOG_DIR/convex_current.log"
+ENV_FILE=".env.local"
+
+# 2. Ensure the log directory exists
+mkdir -p "$LOG_DIR"
+
+# 3. Extract the CONVEX_DEPLOY_KEY
+# This looks for the key, removes 'CONVEX_DEPLOY_KEY=', and strips quotes or carriage returns
+DEPLOY_KEY=$(grep '^CONVEX_DEPLOY_KEY=' "$ENV_FILE" | cut -d '=' -f2- | tr -d '"'\''\r')
+
+if [ -z "$DEPLOY_KEY" ]; then
+    echo "Error: CONVEX_DEPLOY_KEY not found in $ENV_FILE"
+    exit 1
+fi
+
+# 4. Rotate old logs if the current one exists
+if [ -f "$CURRENT_LOG" ]; then
+    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+    mv "$CURRENT_LOG" "$LOG_DIR/log_$TIMESTAMP.log"
+    echo "Archived previous log to $LOG_DIR/log_$TIMESTAMP.log"
+fi
+
+# 5. Execute with the key prepended
+echo "Starting Convex logs (Writing to $CURRENT_LOG)..."
+CONVEX_DEPLOY_KEY="$DEPLOY_KEY" npx convex dev 2>&1 | tee "$CURRENT_LOG"

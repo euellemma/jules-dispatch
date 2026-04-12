@@ -7,11 +7,11 @@ import { jules as julesSdk } from "@google/jules-sdk";
 import { INITIAL_CONFIG } from "../config/initial";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getJulesApiKey(ctx: any, threadId?: string): Promise<string> {
-  if (threadId) {
+async function getJulesApiKey(ctx: any, userId?: string): Promise<string> {
+  if (userId) {
     const res = await ctx.runQuery(
-      (internal as any).users.db.getProviderConfigByThreadId,
-      { threadId }
+      (internal as any).users.db.getProviderConfig,
+      { telegramChatId: userId }
     ) as { julesApiKey?: string } | null;
 
     if (res?.julesApiKey) return res.julesApiKey;
@@ -28,8 +28,8 @@ async function getJulesApiKey(ctx: any, threadId?: string): Promise<string> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getJulesClient(ctx: any, threadId?: string) {
-  const apiKey = await getJulesApiKey(ctx, threadId);
+export async function getJulesClient(ctx: any, userId?: string) {
+  const apiKey = await getJulesApiKey(ctx, userId);
   return julesSdk.with({ apiKey });
 }
 

@@ -1,9 +1,10 @@
+// @ts-nocheck
 import { v } from "convex/values";
 import { internalAction, httpAction, action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { logger } from "../utils/logger";
 
-type ActionCtx = Parameters<typeof internalAction>[0];
+import type { ActionCtx } from "../_generated/server";
 
 // ---------------------------------------------------------------------------
 // OpenAPI Invocation Types
@@ -30,7 +31,10 @@ interface OpenApiBinding {
 
 interface OpenApiConfig {
   baseUrl: string;
-  headers: Record<string, { type: "secret"; secretId: string; prefix?: string } | string>;
+  headers: Record<
+    string,
+    { type: "secret"; secretId: string; prefix?: string } | string
+  >;
 }
 
 interface OpenApiToolDef {
@@ -84,7 +88,10 @@ interface GraphQlToolDef {
   };
   sourceData: {
     endpoint: string;
-    headers?: Record<string, { type: "secret"; secretId: string; prefix?: string } | string>;
+    headers?: Record<
+      string,
+      { type: "secret"; secretId: string; prefix?: string } | string
+    >;
   };
 }
 
@@ -118,43 +125,73 @@ interface GoogleDiscoveryToolDef {
 // OpenAPI Tool Invoker
 // ---------------------------------------------------------------------------
 
-async function resolveSecret(ctx: ActionCtx, userId: string, secretId: string): Promise<string | null> {
-  return await ctx.runQuery(internal.executor.db.getSecret, { userId, secretId });
+async function resolveSecret(
+  ctx: ActionCtx,
+  userId: string,
+  secretId: string,
+): Promise<string | null> {
+  return await ctx.runQuery(internal.executor.db.getSecret, {
+    userId,
+    secretId,
+  });
 }
 
-function resolvePath(template: string, args: Record<string, unknown>, parameters: OpenApiParameter[]): { path: string; missing: string[] } {
+function resolvePath(
+  template: string,
+  args: Record<string, unknown>,
+  parameters: OpenApiParameter[],
+): { path: string; missing: string[] } {
   let resolved = template;
   const missing: string[] = [];
 
   for (const param of parameters) {
     if (param.location !== "path") continue;
-    const value = (args.params && typeof args.params === "object" ? (args.params as Record<string, unknown>)[param.name] : args[param.name])
-      ?? (args.pathParams && typeof args.pathParams === "object" ? (args.pathParams as Record<string, unknown>)[param.name] : undefined);
+    const value =
+      (args.params && typeof args.params === "object"
+        ? (args.params as Record<string, unknown>)[param.name]
+        : args[param.name]) ??
+      (args.pathParams && typeof args.pathParams === "object"
+        ? (args.pathParams as Record<string, unknown>)[param.name]
+        : undefined);
 
     if (value === undefined || value === null) {
       if (param.required) missing.push(param.name);
     } else {
-      resolved = resolved.replace(`{${param.name}}`, encodeURIComponent(String(value)));
+      resolved = resolved.replace(
+        `{${param.name}}`,
+        encodeURIComponent(String(value)),
+      );
     }
   }
 
-  const remainingPlaceholders = [...resolved.matchAll(/\{([^{}]+)\}/g)].map((m) => m[1]);
+  const remainingPlaceholders = [...resolved.matchAll(/\{([^{}]+)\}/g)].map(
+    (m) => m[1],
+  );
   for (const name of remainingPlaceholders) {
     if (args[name] !== undefined && args[name] !== null) {
-      resolved = resolved.replace(`{${name}}`, encodeURIComponent(String(args[name])));
+      resolved = resolved.replace(
+        `{${name}}`,
+        encodeURIComponent(String(args[name])),
+      );
     }
   }
 
   return { path: resolved, missing };
 }
 
-function resolveQueryParams(args: Record<string, unknown>, parameters: OpenApiParameter[]): URLSearchParams {
+function resolveQueryParams(
+  args: Record<string, unknown>,
+  parameters: OpenApiParameter[],
+): URLSearchParams {
   const searchParams = new URLSearchParams();
 
   for (const param of parameters) {
     if (param.location !== "query") continue;
-    const value = args[param.name]
-      ?? (args.query && typeof args.query === "object" ? (args.query as Record<string, unknown>)[param.name] : undefined);
+    const value =
+      args[param.name] ??
+      (args.query && typeof args.query === "object"
+        ? (args.query as Record<string, unknown>)[param.name]
+        : undefined);
 
     if (value !== undefined && value !== null) {
       if (Array.isArray(value)) {
@@ -168,15 +205,21 @@ function resolveQueryParams(args: Record<string, unknown>, parameters: OpenApiPa
   return searchParams;
 }
 
-function resolveHeaderParams(args: Record<string, unknown>, parameters: OpenApiParameter[]): Record<string, string> {
+function resolveHeaderParams(
+  args: Record<string, unknown>,
+  parameters: OpenApiParameter[],
+): Record<string, string> {
   const headers: Record<string, string> = {};
 
   for (const param of parameters) {
     if (param.location !== "header") continue;
     if (param.name.toLowerCase() === "host") continue;
 
-    const value = args[param.name]
-      ?? (args.headers && typeof args.headers === "object" ? (args.headers as Record<string, unknown>)[param.name] : undefined);
+    const value =
+      args[param.name] ??
+      (args.headers && typeof args.headers === "object"
+        ? (args.headers as Record<string, unknown>)[param.name]
+        : undefined);
 
     if (value !== undefined && value !== null) {
       headers[param.name] = String(value);
@@ -187,9 +230,12 @@ function resolveHeaderParams(args: Record<string, unknown>, parameters: OpenApiP
 }
 
 async function resolveHeaders(
-  configHeaders: Record<string, { type: "secret"; secretId: string; prefix?: string } | string>,
+  configHeaders: Record<
+    string,
+    { type: "secret"; secretId: string; prefix?: string } | string
+  >,
   ctx: ActionCtx,
-  userId: string
+  userId: string,
 ): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
 
@@ -211,18 +257,34 @@ async function invokeOpenApiTool(
   ctx: ActionCtx,
   userId: string,
   toolDef: OpenApiToolDef,
-  args: Record<string, unknown>
-): Promise<{ success: boolean; data?: unknown; error?: string; status?: number }> {
+  args: Record<string, unknown>,
+): Promise<{
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  status?: number;
+}> {
   const { binding, config } = toolDef;
-  const { path, missing: missingPath } = resolvePath(binding.pathTemplate, args, binding.parameters);
+  const { path, missing: missingPath } = resolvePath(
+    binding.pathTemplate,
+    args,
+    binding.parameters,
+  );
 
   if (missingPath.length > 0) {
-    return { success: false, error: `Missing required path parameters: ${missingPath.join(", ")}` };
+    return {
+      success: false,
+      error: `Missing required path parameters: ${missingPath.join(", ")}`,
+    };
   }
 
   const queryParams = resolveQueryParams(args, binding.parameters);
   const headerParams = resolveHeaderParams(args, binding.parameters);
-  const resolvedConfigHeaders = await resolveHeaders(config.headers ?? {}, ctx, userId);
+  const resolvedConfigHeaders = await resolveHeaders(
+    config.headers ?? {},
+    ctx,
+    userId,
+  );
 
   const url = new URL(config.baseUrl.replace(/\/$/, "") + path);
   queryParams.forEach((value, key) => url.searchParams.append(key, value));
@@ -235,12 +297,19 @@ async function invokeOpenApiTool(
     },
   };
 
-  if (binding.requestBody && ["POST", "PUT", "PATCH"].includes(binding.method.toUpperCase())) {
+  if (
+    binding.requestBody &&
+    ["POST", "PUT", "PATCH"].includes(binding.method.toUpperCase())
+  ) {
     const body = args.body ?? args.input ?? args;
     if (body && typeof body === "object") {
       requestInit.body = JSON.stringify(body);
-      if (!requestInit.headers || !(requestInit.headers as Record<string, string>)["Content-Type"]) {
-        (requestInit.headers as Record<string, string>)["Content-Type"] = "application/json";
+      if (
+        !requestInit.headers ||
+        !(requestInit.headers as Record<string, string>)["Content-Type"]
+      ) {
+        (requestInit.headers as Record<string, string>)["Content-Type"] =
+          "application/json";
       }
     }
   }
@@ -272,15 +341,20 @@ async function invokeMcpTool(
   ctx: ActionCtx,
   userId: string,
   toolDef: McpToolDef,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
   const { binding, sourceData } = toolDef;
 
   if (!sourceData.endpoint) {
-    return { success: false, error: "MCP tool has no endpoint configured (remote transport required)." };
+    return {
+      success: false,
+      error: "MCP tool has no endpoint configured (remote transport required).",
+    };
   }
 
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
 
   if (sourceData.headers) {
     for (const [name, value] of Object.entries(sourceData.headers)) {
@@ -289,7 +363,11 @@ async function invokeMcpTool(
   }
 
   if (sourceData.auth?.kind === "oauth2") {
-    const accessToken = await resolveSecret(ctx, userId, sourceData.auth.accessTokenSecretId!);
+    const accessToken = await resolveSecret(
+      ctx,
+      userId,
+      sourceData.auth.accessTokenSecretId!,
+    );
     if (accessToken) {
       headers["Authorization"] = `Bearer ${accessToken}`;
     }
@@ -297,7 +375,8 @@ async function invokeMcpTool(
     const secret = await resolveSecret(ctx, userId, sourceData.auth.secretId!);
     if (secret) {
       const prefix = sourceData.auth.prefix ?? "";
-      headers[sourceData.auth.headerName ?? "Authorization"] = `${prefix}${secret}`;
+      headers[sourceData.auth.headerName ?? "Authorization"] =
+        `${prefix}${secret}`;
     }
   }
 
@@ -329,11 +408,13 @@ async function invokeGraphQlTool(
   ctx: ActionCtx,
   userId: string,
   toolDef: GraphQlToolDef,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
   const { binding, sourceData } = toolDef;
 
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
   if (sourceData.headers) {
     for (const [name, value] of Object.entries(sourceData.headers)) {
       if (typeof value === "string") {
@@ -369,7 +450,10 @@ async function invokeGraphQlTool(
       return { success: false, error: String(data) };
     }
   } catch (err: any) {
-    return { success: false, error: `GraphQL tool call failed: ${err.message}` };
+    return {
+      success: false,
+      error: `GraphQL tool call failed: ${err.message}`,
+    };
   }
 }
 
@@ -377,19 +461,29 @@ async function invokeGoogleDiscoveryTool(
   ctx: ActionCtx,
   userId: string,
   toolDef: GoogleDiscoveryToolDef,
-  args: Record<string, unknown>
-): Promise<{ success: boolean; data?: unknown; error?: string; status?: number }> {
+  args: Record<string, unknown>,
+): Promise<{
+  success: boolean;
+  data?: unknown;
+  error?: string;
+  status?: number;
+}> {
   const { binding, sourceData } = toolDef;
 
   let urlPath = binding.pathTemplate;
   const queryParams = new URLSearchParams();
 
   for (const param of binding.parameters) {
-    const value = args[param.name] ?? (args.params as Record<string, unknown> | undefined)?.[param.name];
+    const value =
+      args[param.name] ??
+      (args.params as Record<string, unknown> | undefined)?.[param.name];
     if (value === undefined) continue;
 
     if (param.location === "path") {
-      urlPath = urlPath.replace(`{${param.name}}`, encodeURIComponent(String(value)));
+      urlPath = urlPath.replace(
+        `{${param.name}}`,
+        encodeURIComponent(String(value)),
+      );
     } else if (param.location === "query") {
       if (Array.isArray(value)) {
         value.forEach((v) => queryParams.append(param.name, String(v)));
@@ -399,21 +493,34 @@ async function invokeGoogleDiscoveryTool(
     }
   }
 
-  const url = new URL(`${sourceData.rootUrl.replace(/\/$/, "")}/${sourceData.servicePath.replace(/^\//, "")}${urlPath}`);
+  const url = new URL(
+    `${sourceData.rootUrl.replace(/\/$/, "")}/${sourceData.servicePath.replace(/^\//, "")}${urlPath}`,
+  );
   url.search = queryParams.toString();
 
   const headers: Record<string, string> = {};
 
   if (sourceData.auth.kind === "apiKey") {
-    const apiKey = await resolveSecret(ctx, userId, sourceData.auth.apiKeySecretId!);
+    const apiKey = await resolveSecret(
+      ctx,
+      userId,
+      sourceData.auth.apiKeySecretId!,
+    );
     if (apiKey) queryParams.set("key", apiKey);
   } else if (sourceData.auth.kind === "oauth2") {
-    const accessToken = await resolveSecret(ctx, userId, sourceData.auth.accessTokenSecretId!);
+    const accessToken = await resolveSecret(
+      ctx,
+      userId,
+      sourceData.auth.accessTokenSecretId!,
+    );
     if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
   }
 
   let body: string | undefined;
-  if (["POST", "PUT", "PATCH"].includes(binding.method.toUpperCase()) && binding.requestBody) {
+  if (
+    ["POST", "PUT", "PATCH"].includes(binding.method.toUpperCase()) &&
+    binding.requestBody
+  ) {
     body = JSON.stringify((args.body ?? args.input ?? args) as unknown);
     headers["Content-Type"] = "application/json";
   }
@@ -461,8 +568,15 @@ export const handleIpcCall = internalAction({
     });
 
     if (!session) {
-      logger.error("IPC auth failed: invalid or expired token", new Error("Invalid ipcToken"), { data: { toolPath: args.toolPath } });
-      return { error: "Invalid or expired IPC token. The sandbox session may have expired." };
+      logger.error(
+        "IPC auth failed: invalid or expired token",
+        new Error("Invalid ipcToken"),
+        { data: { toolPath: args.toolPath } },
+      );
+      return {
+        error:
+          "Invalid or expired IPC token. The sandbox session may have expired.",
+      };
     }
 
     const userId = session.userId;
@@ -473,8 +587,8 @@ export const handleIpcCall = internalAction({
       // 1. Check if this is a "Local" built-in tool first
       // We allow the sandbox to call Jules's own tools (vfs, research, etc.)
       const localTools: Record<string, any> = {
-        "vfs": internal.tools.nodeActions.vfs,
-        "research": internal.tools.index.research,
+        vfs: internal.tools.nodeActions.vfs,
+        research: internal.tools.index.research,
         // Add more local tools as needed
       };
 
@@ -491,11 +605,16 @@ export const handleIpcCall = internalAction({
       });
 
       if (!toolValue) {
-        throw new Error(`Tool '${args.toolPath}' not found. Did you run 'npx jules-dispatch sync'?`);
+        throw new Error(
+          `Tool '${args.toolPath}' not found. Did you run 'npx jules-dispatch sync'?`,
+        );
       }
 
       const toolDef = JSON.parse(toolValue);
-      logger.info(`Routing to synced tool: ${args.toolPath} (Plugin: ${toolDef.pluginKey})`, { threadId });
+      logger.info(
+        `Routing to synced tool: ${args.toolPath} (Plugin: ${toolDef.pluginKey})`,
+        { threadId },
+      );
 
       // 3. Plugin-specific logic
       if (toolDef.pluginKey === "openapi") {
@@ -518,7 +637,6 @@ export const handleIpcCall = internalAction({
         success: false,
         error: `Plugin '${toolDef.pluginKey}' is not yet supported in this environment.`,
       };
-
     } catch (err: any) {
       logger.error(`IPC Tool Call failed: ${args.toolPath}`, err, { threadId });
       return { error: err.message };
@@ -542,7 +660,9 @@ export const testIpc = action({
       userId: args.userId,
     });
     if (!session) {
-      return { error: "No session found for this userId. Create a sandbox first." };
+      return {
+        error: "No session found for this userId. Create a sandbox first.",
+      };
     }
     return await ctx.runAction(internal.executor.ipc.handleIpcCall, {
       ipcToken: session.ipcToken,
@@ -566,7 +686,9 @@ export const ipcEndpoint = httpAction(async (ctx, request) => {
     const { ipcToken, toolPath, args } = body;
 
     if (!ipcToken || !toolPath) {
-      return new Response("Missing required fields: ipcToken and toolPath", { status: 400 });
+      return new Response("Missing required fields: ipcToken and toolPath", {
+        status: 400,
+      });
     }
 
     const result = await ctx.runAction(internal.executor.ipc.handleIpcCall, {

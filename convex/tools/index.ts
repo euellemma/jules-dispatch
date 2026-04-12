@@ -75,41 +75,7 @@ export const approve_plan = createTool({
   },
 });
 
-export const message_user = createTool({
-  description:
-    "Send a direct message to the human user on Telegram. MUST be used for all responses. Format with Telegram HTML tags: <b>bold</b>, <i>italic</i>, <code>code</code>, <a href='url'>link</a>.",
-  inputSchema: z.object({
-    message: z
-      .string()
-      .describe(
-        "The message text to send to the user, formatted in Telegram HTML.",
-      ),
-  }),
-  execute: async (ctx, args): Promise<string> => {
-    try {
-      if (!ctx.threadId) throw new Error("Tool must be called within a thread.");
-      logger.tool(`[message_user] Sending message to Telegram`, { message: args.message.slice(0, 100) + "..." }, { threadId: ctx.threadId });
-      const res = await ctx.runAction(
-        internal.sessions.actions.sendTelegramMessage,
-        {
-          threadId: ctx.threadId,
-          message: args.message,
-        },
-      );
-      if (res.success) {
-        logger.tool(`[message_user] Message sent successfully`, res, { threadId: ctx.threadId });
-        return `Message successfully sent to the user on Telegram.`;
-      } else {
-        logger.error(`[message_user] Failed to send`, res.error, { threadId: ctx.threadId });
-        return `Error sending message: ${res.error}`;
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.error(`[message_user] Unexpected error`, msg, { threadId: ctx.threadId });
-      return `Error sending message: ${msg}`;
-    }
-  },
-});
+
 
 export const create_session = createTool({
   description:
@@ -173,7 +139,7 @@ export const create_session = createTool({
       console.log(`[create_session] Creating session with prompt: ${args.prompt.slice(0, 80)}...`);
 
       const res = await ctx.runAction(internal.sessions.actions.createSession, {
-        threadId: ctx.threadId,
+        userId: ctx.userId,
         prompt: args.prompt,
         title: args.title,
         githubRepo: args.githubRepo,
@@ -281,7 +247,8 @@ export {
 
 export { vfs } from "../vfs";
 
-export { memory } from "../memory/tool";
+export { manage_memory } from "../memory/tool";
+export { search_history } from "../memory/searchTool";
 
 export { createReportToOrchestratorTool } from "./reportToOrchestrator";
 
@@ -323,8 +290,8 @@ export const query_sessions = createTool({
       if (!ctx.threadId)
         throw new Error("Tool must be called within a thread context.");
 
-      const model = await resolveLanguageModel(ctx, ctx.threadId);
-      return spawnSessionManagerAgent(ctx, sessions, prompt, ctx.threadId, model);
+      const model = await resolveLanguageModel(ctx, ctx.threadId, ctx.userId);
+      return spawnSessionManagerAgent(ctx, sessions, prompt, ctx.userId, model, manage_sessions);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[query_sessions] Error:`, msg);
@@ -409,7 +376,7 @@ export const manage_sessions = createTool({
       console.log(`[manage_sessions] Action: ${args.action}, selection: ${JSON.stringify({ ids: args.selection.ids?.length, target: args.selection.target })}`);
       const result = (await ctx.runAction(
         internal.sessions.sessionManager.getAllSessionsBasic,
-        {},
+        { userId: ctx.userId },
       )) as SessionQueryResult;
 
       if (!result.success) {

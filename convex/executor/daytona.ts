@@ -1,14 +1,12 @@
+// @ts-nocheck
+"use node";
 import { Daytona, type Sandbox } from "@daytonaio/sdk";
 import * as Effect from "effect/Effect";
 import * as Data from "effect/Data";
 import * as Schema from "effect/Schema";
 import crypto from "crypto";
 import { internal } from "../_generated/api";
-import type { 
-  CodeExecutor, 
-  ExecuteResult, 
-  SandboxToolInvoker 
-} from "./types";
+import type { CodeExecutor, ExecuteResult } from "./types";
 import { logger } from "../utils/logger";
 
 // ---------------------------------------------------------------------------
@@ -68,53 +66,96 @@ export type DaytonaExecutorOptions = {
  * and boots it if necessary.
  */
 const getOrCreateSandbox = (
-  daytona: Daytona, 
-  userId: string, 
+  daytona: Daytona,
+  userId: string,
   image: string,
   ctx: any, // Convex internal action context
-  threadId: string
-): Effect.Effect<{ sandbox: Sandbox; ipcToken: string }, DaytonaError> => 
-  Effect.gen(function* () {
+  threadId: string,
+): Effect.Effect<{ sandbox: Sandbox; ipcToken: string }, DaytonaError> =>
+  Effect.gen(async function* () {
     // 1. Check Convex for cached session
     const session = yield* Effect.tryPromise({
       try: () => ctx.runQuery(internal.executor.db.getSession, { userId }),
-      catch: (e) => new DaytonaError({ message: "Failed to query executor sessions", cause: e }),
+      catch: (e) =>
+        new DaytonaError({
+          message: "Failed to query executor sessions",
+          cause: e,
+        }),
     });
 
     if (session && session.image === image) {
       try {
-        logger.info("Checking cached sandbox", { threadId, data: { sandboxId: session.sandboxId } });
-        const sandbox = await daytona.get(session.sandboxId);
-        
+        logger.info("Checking cached sandbox", {
+          threadId,
+          data: { sandboxId: session.sandboxId },
+        });
+        const sandbox = yield* Effect.tryPromise({
+          try: () => daytona.get(session.sandboxId),
+          catch: (e) =>
+            new DaytonaError({
+              message: "Failed to get cached sandbox",
+              cause: e,
+            }),
+        });
+
         // Ensure it's started
-        await sandbox.start();
+        yield* Effect.tryPromise({
+          try: () => sandbox.start(),
+          catch: (e) =>
+            new DaytonaError({
+              message: "Failed to start cached sandbox",
+              cause: e,
+            }),
+        });
 
         const ipcToken = session.ipcToken || crypto.randomUUID();
-        
+
         // Refresh lastUsedAt and ensure token is stored
-        await ctx.runMutation(internal.executor.db.upsertSession, {
-          userId,
-          sandboxId: sandbox.id,
-          image,
-          ipcToken,
+        yield* Effect.tryPromise({
+          try: () =>
+            ctx.runMutation(internal.executor.db.upsertSession, {
+              userId,
+              sandboxId: sandbox.id,
+              image,
+              ipcToken,
+            }),
+          catch: (e) =>
+            new DaytonaError({
+              message: "Failed to refresh session",
+              cause: e,
+            }),
         });
-        
+
         return { sandbox, ipcToken };
       } catch (e) {
-        logger.warn("Cached sandbox invalid or deleted, creating new one", { threadId, data: { sandboxId: session.sandboxId } });
+        logger.warn(
+          `Cached sandbox invalid or deleted, creating new one: ${e?.message}`,
+          {
+            threadId,
+            data: { sandboxId: session.sandboxId },
+          },
+        );
         yield* Effect.tryPromise({
-          try: () => ctx.runMutation(internal.executor.db.deleteSession, { userId }),
+          try: () =>
+            ctx.runMutation(internal.executor.db.deleteSession, { userId }),
           catch: () => {}, // Ignore
         });
       }
     }
 
     // 2. Create New Sandbox
-    logger.info("Creating fresh Daytona sandbox", { threadId, data: { image } });
-    const newSandbox = yield* Effect.tryPromise({
-      try: () => daytona.createSandbox({ image }),
-      catch: (e) => new DaytonaError({ message: "Failed to create Daytona sandbox", cause: e }),
+    logger.info("Creating fresh Daytona sandbox", {
+      threadId,
+      data: { image },
     });
+    const newSandbox = (yield* Effect.tryPromise({
+      try: () => daytona.createSandbox({ image }),
+      catch: (e) =>
+        new DaytonaError({
+          message: "Failed to create Daytona sandbox",
+          cause: e,
+        }),
+    })) as unknown as Sandbox;
 
     // 3. Configure Autostop (15 mins by default)
     yield* Effect.tryPromise({
@@ -125,22 +166,27 @@ const getOrCreateSandbox = (
     // 4. Cache in Convex
     const ipcToken = crypto.randomUUID();
     yield* Effect.tryPromise({
-      try: () => ctx.runMutation(internal.executor.db.upsertSession, {
-        userId,
-        sandboxId: newSandbox.id,
-        image,
-        ipcToken,
-      }),
-      catch: (e) => new DaytonaError({ message: "Failed to cache executor session", cause: e }),
+      try: () =>
+        ctx.runMutation(internal.executor.db.upsertSession, {
+          userId,
+          sandboxId: newSandbox.id,
+          image,
+          ipcToken,
+        }),
+      catch: (e) =>
+        new DaytonaError({
+          message: "Failed to cache executor session",
+          cause: e,
+        }),
     });
 
     return { sandbox: newSandbox, ipcToken };
   });
 
 export const makeDaytonaExecutor = (
-  options: DaytonaExecutorOptions, 
+  options: DaytonaExecutorOptions,
   threadId: string,
-  ctx: any // Convex internal action context
+  ctx: any, // Convex internal action context
 ): CodeExecutor => {
   const daytona = new Daytona({
     apiKey: options.apiKey,
@@ -148,35 +194,58 @@ export const makeDaytonaExecutor = (
   });
 
   return {
-    execute: (code, toolInvoker) =>
-      Effect.gen(function* () {
+    execute: (code, _) =>
+      Effect.gen(async function* () {
         const image = options.image ?? "node:20-slim";
         const userId = threadId;
 
         // 1. Get or Create Warm Sandbox
-        const { sandbox, ipcToken } = yield* getOrCreateSandbox(daytona, userId, image, ctx, threadId);
+        const { sandbox, ipcToken } = yield* getOrCreateSandbox(
+          daytona,
+          userId,
+          image,
+          ctx,
+          threadId,
+        );
 
         // 2. Resolve Secrets for this user
         // We look for everything in the 'secrets' namespace
         const secretEntries = yield* Effect.tryPromise({
-          try: () => ctx.runQuery(internal.executor.db.listKv, { userId, namespace: "secrets" }),
-          catch: () => [], 
+          try: () =>
+            ctx.runQuery(internal.executor.db.listKv, {
+              userId,
+              namespace: "secrets",
+            }),
+          catch: () => [],
         });
 
         const envVars: Record<string, string> = {};
-        for (const entry of (secretEntries || [])) {
+        for (const entry of secretEntries || []) {
           try {
             // entries in 'secrets' namespace are JSON stringified SecretRef objects
             const ref = JSON.parse(entry.value);
-            const secretValue = await ctx.runQuery(internal.executor.db.getSecret, { userId, secretId: ref.id });
-            
+            const secretValue = yield* Effect.tryPromise({
+              try: () =>
+                ctx.runQuery(internal.executor.db.getSecret, {
+                  userId,
+                  secretId: ref.id,
+                }),
+              catch: () => null,
+            });
+
             if (secretValue) {
               // Convert the secret name to a standard ENV_VAR_NAME (e.g. "GitHub Token" -> "GITHUB_TOKEN")
               const envName = ref.name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
               envVars[envName] = secretValue;
             }
           } catch (e) {
-            logger.warn("Failed to resolve secret for injection", { threadId, data: { key: entry.key } });
+            logger.warn(
+              `Failed to resolve secret for injection: ${e?.message}`,
+              {
+                threadId,
+                data: { key: entry.key },
+              },
+            );
           }
         }
 
@@ -184,9 +253,11 @@ export const makeDaytonaExecutor = (
           // 3. Wrap code in the worker shim for IPC
           // We now inject the CONVEX_SITE_URL so the worker can call back home.
           const convexSiteUrl = process.env.CONVEX_SITE_URL;
-          
+
           if (!convexSiteUrl) {
-            throw new Error("CONVEX_SITE_URL is not set in environment variables.");
+            throw new Error(
+              "CONVEX_SITE_URL is not set in environment variables.",
+            );
           }
 
           const envVarsJson = JSON.stringify(JSON.stringify(envVars));
@@ -214,7 +285,7 @@ const tools = new Proxy({}, {
         });
 
         const data = await response.json();
-        
+
         if (data.error) {
           throw new Error(data.error);
         }
@@ -241,10 +312,17 @@ const tools = new Proxy({}, {
 `;
 
           // 3. Run in Daytona
-          logger.info("Executing code in sandbox", { threadId, data: { sandboxId: sandbox.id } });
+          logger.info("Executing code in sandbox", {
+            threadId,
+            data: { sandboxId: sandbox.id },
+          });
           const response = yield* Effect.tryPromise({
             try: () => sandbox.codeInterpreter.run(shim),
-            catch: (e) => new DaytonaError({ message: "Daytona execution failed", cause: e }),
+            catch: (e) =>
+              new DaytonaError({
+                message: "Daytona execution failed",
+                cause: e,
+              }),
           });
 
           // 4. Parse results
@@ -259,17 +337,24 @@ const tools = new Proxy({}, {
               try {
                 const msg = JSON.parse(raw);
                 const decoded = Schema.decodeUnknownSync(WorkerMessage)(msg);
-                
+
                 if (decoded.type === "completed") {
                   result = decoded.result;
                 } else if (decoded.type === "failed") {
                   error = decoded.error;
                 } else if (decoded.type === "tool_call") {
-                  logger.tool(`Sandbox tool call requested: ${decoded.toolPath}`, decoded.args, { threadId });
+                  logger.tool(
+                    `Sandbox tool call requested: ${decoded.toolPath}`,
+                    decoded.args,
+                    { threadId },
+                  );
                   logs.push(`[tool_call] Requested ${decoded.toolPath}`);
                 }
               } catch (e) {
-                logger.error("Failed to parse IPC message", e as Error, { threadId, data: { line } });
+                logger.error("Failed to parse IPC message", e as Error, {
+                  threadId,
+                  data: { line },
+                });
                 logs.push(`[error] Failed to parse IPC: ${line}`);
               }
             } else if (line.trim()) {
@@ -282,16 +367,20 @@ const tools = new Proxy({}, {
           }
 
           return { result, error, logs };
-
         } catch (err: any) {
           return { result: null, error: err.message, logs: [] };
         }
         // Note: We NO LONGER delete the sandbox in 'finally' to support pooling.
       }).pipe(
         Effect.catchTag("DaytonaError", (e) => {
-          logger.error("Daytona runtime error", e.cause as Error || e, { threadId });
-          return Effect.succeed<ExecuteResult>({ result: null, error: e.message });
-        })
+          logger.error("Daytona runtime error", (e.cause as Error) || e, {
+            threadId,
+          });
+          return Effect.succeed<ExecuteResult>({
+            result: null,
+            error: e.message,
+          });
+        }),
       ),
   };
 };

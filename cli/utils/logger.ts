@@ -1,12 +1,7 @@
 /**
  * Unified Logger for Jules Dispatch CLI
- * Supports structured console logging and optional Axiom cloud logging.
+ * Supports structured console logging.
  */
-
-// HARDCODED API KEY (as requested)
-const AXIOM_API_KEY = "xaat-0738ef76-eaee-47fe-885e-cc76be95ebbc";
-const AXIOM_DATASET = "jules-dispatch";
-const AXIOM_ORG_ID = "nebaorg-kskd";
 
 type LogLevel = "info" | "warn" | "error" | "debug";
 
@@ -20,25 +15,6 @@ interface LogEntry {
 }
 
 class CliLogger {
-  private async sendToAxiom(entry: LogEntry) {
-    if (!AXIOM_API_KEY) return;
-
-    const url = `https://api.axiom.co/v1/datasets/${AXIOM_DATASET}/ingest`;
-
-    try {
-      // In Node.js, we use fetch
-      fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${AXIOM_API_KEY}`,
-          "Content-Type": "application/json",
-          ...(AXIOM_ORG_ID ? { "X-Axiom-Org-Id": AXIOM_ORG_ID } : {}),
-        },
-        body: JSON.stringify([entry]),
-      }).catch(() => {});
-    } catch (err) {}
-  }
-
   log(level: LogLevel, msg: string, meta: any = {}) {
     const entry: LogEntry = {
       _time: new Date().toISOString(),
@@ -48,9 +24,21 @@ class CliLogger {
       ...meta,
     };
 
-    // Axiom Cloud Log (if configured)
-    if (AXIOM_API_KEY) {
-      this.sendToAxiom(entry);
+    // Console Log
+    const icon = {
+      info: "ℹ️",
+      warn: "⚠️",
+      error: "❌",
+      debug: "🔍",
+    }[entry.level];
+
+    const baseMsg = `${icon} [CLI] ${entry.msg}`;
+    if (entry.level === "error") {
+      console.error(baseMsg, entry.error || "", entry.data || "");
+    } else if (entry.level === "warn") {
+      console.warn(baseMsg, entry.data || "");
+    } else {
+      console.log(baseMsg, entry.data || "");
     }
   }
 

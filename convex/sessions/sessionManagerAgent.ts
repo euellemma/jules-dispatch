@@ -1,7 +1,6 @@
 import { createTool, Agent } from "@convex-dev/agent";
 import { components, internal } from "../_generated/api";
 import { z } from "zod";
-import { manage_sessions } from "../tools/index";
 import type { SessionInfo } from "../types";
 import { normalizeState, isActiveState } from "../types";
 
@@ -136,6 +135,7 @@ export async function spawnSessionManagerAgent(
   userPrompt: string,
   originalThreadId: string,
   languageModel: any,
+  manage_sessions: any,
 ): Promise<string> {
   const local_list_sessions = createTool({
     description:
@@ -238,14 +238,14 @@ export async function spawnSessionManagerAgent(
     }),
     execute: async (subCtx, args) => {
       // Fetch live data from API instead of using prefetched sessions
-      const result = (await subCtx.runAction(
+      const result = await ctx.runAction(
         internal.sessions.sessionManager.getSessionDetails,
         {
           sessionIds: [args.julesSessionId],
-          threadId: originalThreadId,
+          userId: originalUserId,
           // Not passing 'sessions' param - forces live fetch from API
         },
-      )) as any;
+      );
 
       if (!result.success) {
         return `Error: ${result.error || "Failed to fetch session"}`;

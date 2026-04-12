@@ -97,7 +97,7 @@ export default defineSchema({
 
   memoryEntries: defineTable({
     userId: v.string(),           // telegramChatId — per-user, not per-thread
-    target: v.union(v.literal("memory"), v.literal("user")),
+    target: v.union(v.literal("memory"), v.literal("user"), v.literal("skills")),
     content: v.string(),          // single entry, can be multiline
     createdAt: v.number(),
   }).index("by_user_and_target", ["userId", "target"]),
@@ -166,4 +166,22 @@ export default defineSchema({
     .index("by_ownerId", ["ownerId"])
     .index("by_status", ["status"])
     .index("by_githubRepo", ["githubRepo"]),
+
+  llmCalls: defineTable({
+    threadId: v.string(),
+    userId: v.string(),
+    timestamp: v.number(),
+    model: v.string(),
+    provider: v.string(),
+    requestBody: v.any(),
+    responseBody: v.any(),
+    finishReason: v.optional(v.string()),
+    usage: v.optional(v.object({
+      promptTokens: v.number(),
+      completionTokens: v.number(),
+      totalTokens: v.number(),
+    })),
+    durationMs: v.number(),
+    status: v.union(v.literal("success"), v.literal("error")),
+  }).index("by_timestamp", ["timestamp"]),
 });

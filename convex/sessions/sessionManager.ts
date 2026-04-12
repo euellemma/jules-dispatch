@@ -13,15 +13,19 @@ async function fetchAllJulesSessions(ctx: ActionCtx, threadId?: string): Promise
     const jules = await getJulesClient(ctx, threadId);
     const sessions = await jules.sessions({}).all();
     return sessions as unknown as JulesApiSession[];
-  } catch (error) {
+  } catch (error: any) {
+    if (error.message?.includes("Jules API key not configured")) {
+      // Don't spam the logs for unconfigured users
+      return [];
+    }
     console.error("Error fetching sessions:", error);
     return [];
   }
 }
 
-async function fetchSessionActivities(ctx: ActionCtx, threadId: string | undefined, sessionId: string): Promise<string> {
+async function fetchSessionActivities(ctx: ActionCtx, userId: string | undefined, sessionId: string): Promise<string> {
   try {
-    const jules = await getJulesClient(ctx, threadId);
+    const jules = await getJulesClient(ctx, userId);
     const session = await jules.session(sessionId);
     const { activities } = await session.activities.list({});
     return formatActivityLog(activities);
@@ -81,7 +85,7 @@ function extractRepo(js: JulesApiSession): string {
  */
 export const getAllSessionsBasic = internalAction({
   args: {
-    threadId: v.optional(v.string()),
+    userId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<SessionQueryResult> => {
     let julesSessions: JulesApiSession[];
@@ -89,7 +93,7 @@ export const getAllSessionsBasic = internalAction({
 
     try {
       [julesSessions, dbSessions] = await Promise.all([
-        fetchAllJulesSessions(ctx, args.threadId),
+        fetchAllJulesSessions(ctx, args.userId),
         ctx.runQuery(internal.sessions.db.getAllSessions, {}),
       ]);
     } catch (error) {
@@ -302,8 +306,8 @@ export const getSessionDetails = internalAction({
 
     if (!args.sessions || args.sessions.length === 0) {
       try {
-        [julesSessions, dbMap] = await Promise.all([
-          fetchAllJulesSessions(ctx, args.threadId).then(sessions => {
+        [julesSessions, dbMap] = (await Promise.all([
+          fetchAllJulesSessions(ctx, args.userId).then(sessions => {
             const filtered = sessions.filter((js: JulesApiSession) =>
               args.sessionIds.includes(js.id)
             );
@@ -312,7 +316,7 @@ export const getSessionDetails = internalAction({
           ctx.runQuery(internal.sessions.db.getAllSessions, {}).then(dbSessions =>
             new Map(dbSessions.map((s: JulesSessionDoc) => [s.julesSessionId, s]))
           ),
-        ]);
+        ])) as [JulesApiSession[], Map<string, JulesSessionDoc>];
       } catch (error) {
         console.error("Error in getSessionDetails:", error);
         return { success: false, error: "Failed to fetch session details" };
@@ -339,7 +343,7 @@ export const getSessionDetails = internalAction({
         continue;
       }
 
-      const activities = await fetchSessionActivities(ctx, args.threadId, id);
+      const activities = await fetchSessionActivities(ctx, args.userId, id);
 
       results.push({
         julesSessionId: id,

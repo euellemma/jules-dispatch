@@ -1,7 +1,8 @@
 import * as p from "@clack/prompts";
 import * as fs from "fs";
+import * as path from "path";
 import { printBanner, c, link, info } from "../ui.js";
-import { readHomeConfig, writeHomeConfig, writeEnvLocal } from "../config.js";
+import { readHomeConfig, writeHomeConfig, writeEnvLocal, readEnvLocal } from "../config.js";
 import {
   runConvexDeploy,
   buildAndUploadWeb,
@@ -13,15 +14,29 @@ import { promptForDeployKey } from "../steps/convex.js";
 
 export async function runDeployCommand(): Promise<void> {
   const config = readHomeConfig();
-  if (!config) {
+  const cwd = process.cwd();
+  
+  // Prefer CWD if it's a valid project dir, otherwise use config path
+  const isCwdValid = fs.existsSync(path.join(cwd, "convex")) && fs.existsSync(path.join(cwd, "package.json"));
+  let installPath = isCwdValid ? cwd : config?.installPath;
+
+  if (!installPath) {
     p.log.error(c.red("No Jules Dispatch installation found."));
     info("Run 'npx jules-dispatch' to set up first.");
     process.exit(1);
   }
 
-  const installPath = config.installPath;
   if (!fs.existsSync(installPath)) {
     p.log.error(c.red(`Installation not found: ${installPath}`));
+    process.exit(1);
+  }
+
+  // If we're deploying from CWD but don't have a config yet, we should still allow it
+  // but we'll need to prompt for keys or rely on environment.
+  // For now, let's assume we need a config for the deploy key and other metadata.
+  if (!config) {
+    p.log.error(c.red("No configuration found (~/.jules-dispatch.json)."));
+    info("Run 'npx jules-dispatch' to set up first.");
     process.exit(1);
   }
 
@@ -58,9 +73,11 @@ export async function runDeployCommand(): Promise<void> {
     // Set environment variables on the Convex deployment
     if (keyInfo) {
       s.start("Configuring deployment environment...");
+      const localEnv = readEnvLocal(installPath);
       const envSuccess = setConvexEnvVars(installPath, {
         CONVEX_URL: keyInfo.convexUrl,
         CONVEX_SITE_URL: keyInfo.convexSiteUrl,
+        ...localEnv,
       });
       if (envSuccess) {
         s.stop(c.green("Environment configured!"));

@@ -7,8 +7,6 @@ import * as github from "./githubApi";
 export const checkProvisionedBots = internalAction({
   args: {},
   handler: async (ctx) => {
-    logger.info("[provisioning-poll] Checking provisioned bots");
-
     const bots = await ctx.runQuery(internal.provisioning.db.getBotsByStatus, {
       statuses: ["deploying", "provisioning"],
     });
@@ -20,18 +18,16 @@ export const checkProvisionedBots = internalAction({
     for (const bot of bots) {
       try {
         if (!bot.githubRepo) {
-          logger.warn("[provisioning-poll] Bot has no githubRepo", { botId: bot._id, name: bot.name });
+          logger.warn("[provisioning-poll] Bot has no githubRepo", { data: { botId: bot._id, name: bot.name } });
           continue;
         }
 
         const runs = await github.getWorkflowRuns(bot.githubRepo, "managed");
 
         if (runs.length === 0) {
-          logger.info("[provisioning-poll] No workflow runs yet", { name: bot.name, repo: bot.githubRepo });
-
           const waitTime = Date.now() - bot.updatedAt;
           if (waitTime > 30 * 60 * 1000) {
-            logger.warn("[provisioning-poll] Timed out waiting for workflow", { name: bot.name });
+            logger.warn("[provisioning-poll] Timed out waiting for workflow", { data: { name: bot.name } });
             await ctx.runMutation(internal.provisioning.db.updateBot, {
               id: bot._id,
               patches: {
@@ -62,7 +58,7 @@ export const checkProvisionedBots = internalAction({
 
         if (latestRun.status === "completed") {
           if (latestRun.conclusion === "success") {
-            logger.info("[provisioning-poll] Deployment successful", { name: bot.name });
+            logger.info("[provisioning-poll] Deployment successful", { data: { name: bot.name } });
 
             await ctx.runMutation(internal.provisioning.db.updateBot, {
               id: bot._id,
@@ -79,8 +75,10 @@ export const checkProvisionedBots = internalAction({
             });
           } else {
             logger.error("[provisioning-poll] Deployment failed", undefined, {
-              name: bot.name,
-              conclusion: latestRun.conclusion,
+              data: {
+                name: bot.name,
+                conclusion: latestRun.conclusion,
+              }
             });
 
             await ctx.runMutation(internal.provisioning.db.updateBot, {
@@ -100,8 +98,10 @@ export const checkProvisionedBots = internalAction({
         }
       } catch (error) {
         logger.error("[provisioning-poll] Error checking bot", error, {
-          botId: bot._id,
-          name: bot.name,
+          data: {
+            botId: bot._id,
+            name: bot.name,
+          }
         });
       }
     }

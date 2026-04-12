@@ -7,6 +7,7 @@ import { julesAgent, resolveLanguageModel } from "../agent/instance";
 import { chunkHtml } from "./utils";
 import { withRetry, isNonRetriableError } from "../utils/retry";
 import { INITIAL_CONFIG, isConfigured } from "../config/initial";
+import { formatTelegramMessage, stripMdv2, chunkMessage } from "../utils/telegramFormat";
 
 const MAX_BACKOFF_DELAY_MS = 60_000;
 const BASE_RETRY_DELAY_MS = 5_000;
@@ -54,12 +55,29 @@ async function telegramApiCall(endpoint: string, body: object): Promise<any> {
 async function sendTelegramMessage(
   chatId: string,
   text: string,
+  parseMode: "HTML" | "MarkdownV2" = "MarkdownV2",
 ): Promise<void> {
-  await telegramApiCall("sendMessage", {
-    chat_id: chatId,
-    text,
-    parse_mode: "HTML",
-  });
+  try {
+    await telegramApiCall("sendMessage", {
+      chat_id: chatId,
+      text,
+      parse_mode: parseMode,
+    });
+  } catch (error: any) {
+    // If MarkdownV2 parse fails, fall back to plain text
+    if (parseMode === "MarkdownV2" && 
+        (error?.message?.toLowerCase().includes("parse") || 
+         error?.message?.toLowerCase().includes("markdown"))) {
+      logger.warn(`MarkdownV2 parse failed, falling back to plain text: ${error.message}`);
+      await telegramApiCall("sendMessage", {
+        chat_id: chatId,
+        text: stripMdv2(text),
+        parse_mode: undefined,
+      });
+    } else {
+      throw error;
+    }
+  }
 }
 
 async function sendTelegramChatAction(
@@ -184,7 +202,7 @@ export async function processTelegramUpdate(
     if (existingUser && existingUser.telegramChatId !== chatId) {
       await sendTelegramMessage(
         chatId,
-        "⛔ <b>Bot Already Claimed</b>\n\nThis bot is already connected to another user. Each deployment can only have one owner.",
+        "⛔ *Bot Already Claimed*\n\nThis bot is already connected to another user. Each deployment can only have one owner.",
       );
       return { success: true, handled: true };
     }
@@ -216,7 +234,7 @@ export async function processTelegramUpdate(
         } else if (!isConnectCommand) {
           await sendTelegramMessage(
             chatId,
-            "👋 <b>Welcome to Jules Dispatch!</b>\n\nI need an AI provider to function. Please use /connect to set up your API key (OpenCode, Gemini, Anthropic, etc.) before we start chatting.",
+            "👋 *Welcome to Jules Dispatch!*\n\nI need an AI provider to function. Please use /connect to set up your API key (OpenCode, Gemini, Anthropic, etc.) before we start chatting.",
           );
           return { success: true, handled: true };
         }
@@ -226,14 +244,14 @@ export async function processTelegramUpdate(
         if (!existingUser.config) {
           await sendTelegramMessage(
             chatId,
-            "👋 <b>Welcome to Jules Dispatch!</b>\n\nI need an AI provider to function. Please use /connect to set up your API key (OpenCode, Gemini, Anthropic, etc.) before we start chatting.",
+            "👋 *Welcome to Jules Dispatch!*\n\nI need an AI provider to function. Please use /connect to set up your API key (OpenCode, Gemini, Anthropic, etc.) before we start chatting.",
           );
           return { success: true, handled: true };
         }
         if (!existingUser.julesApiKey) {
           await sendTelegramMessage(
             chatId,
-            "🔑 <b>Jules API Key Required</b>\n\nI need a Jules API key to manage your coding sessions. Please use /connect to set it up.",
+            "🔑 *Jules API Key Required*\n\nI need a Jules API key to manage your coding sessions. Please use /connect to set it up.",
           );
           return { success: true, handled: true };
         }
@@ -302,14 +320,14 @@ async function handleTelegramCommand(
     case "/start":
       await sendTelegramMessage(
         chatId,
-        "👋 <b>Welcome to Jules Dispatch!</b>\n\nI am your AI agent assistant. I can help you manage code sessions, search the web, and more.\n\nType /connect to set up your AI providers.",
+        "👋 *Welcome to Jules Dispatch!*\n\nI am your AI agent assistant. I can help you manage code sessions, search the web, and more.\n\nType /connect to set up your AI providers.",
       );
       return true;
 
     case "/help":
       await sendTelegramMessage(
         chatId,
-        "📖 <b>Jules Dispatch Help</b>\n\n" +
+        "📖 *Jules Dispatch Help*\n\n" +
           "/connect - Configure your AI provider and API key\n" +
           "/new - Start fresh conversation (keeps memory)\n" +
           "/reset - Clear conversation only (keeps memory)\n" +
@@ -329,7 +347,7 @@ async function handleTelegramCommand(
       const settingsUrl = `${siteUrl}/settings?token=${token}`;
       await sendTelegramMessage(
         chatId,
-        `🔗 <b>Connect your AI provider</b>\n\nClick the link below to configure your LLM provider (OpenCode, Google AI Studio, Anthropic, OpenAI, etc.):\n\n<a href="${settingsUrl}">${settingsUrl}</a>\n\n<i>This link expires in 24 hours.</i>`,
+        `🔗 *Connect your AI provider*\n\nClick the link below to configure your LLM provider (OpenCode, Google AI Studio, Anthropic, OpenAI, etc.):\n\n${settingsUrl}\n\n_This link expires in 24 hours._`,
       );
       return true;
     }
@@ -337,7 +355,7 @@ async function handleTelegramCommand(
     case "/new":
       await sendTelegramMessage(
         chatId,
-        "🆕 <b>Starting fresh...</b> New conversation thread created. Your memory and user profile are preserved.",
+        "🆕 *Starting fresh...* New conversation thread created. Your memory and user profile are preserved.",
       );
       await ctx.scheduler.runAfter(
         0,
@@ -351,7 +369,7 @@ async function handleTelegramCommand(
     case "/reset":
       await sendTelegramMessage(
         chatId,
-        "🔄 <b>Resetting conversation...</b> Keeping your memory and user profile.",
+        "🔄 *Resetting conversation...* Keeping your memory and user profile.",
       );
       await ctx.scheduler.runAfter(
         0,
@@ -365,8 +383,8 @@ async function handleTelegramCommand(
     case "/nuke":
       await telegramApiCall("sendMessage", {
         chat_id: chatId,
-        text: "⚠️ <b>Nuke All Data</b>\n\nThis will permanently delete ALL memory, tasks, files, and conversation history. Your API keys will be kept.\n\nAre you sure?",
-        parse_mode: "HTML",
+        text: "⚠️ *Nuke All Data*\n\nThis will permanently delete ALL memory, tasks, files, and conversation history. Your API keys will be kept.\n\nAre you sure?",
+        parse_mode: "MarkdownV2",
         reply_markup: {
           inline_keyboard: [
             [
@@ -384,7 +402,7 @@ async function handleTelegramCommand(
     case "/compact":
       await sendTelegramMessage(
         chatId,
-        "🧹 <b>Compacting conversation...</b>\n\nFirst saving important facts, then summarizing older messages.",
+        "🧹 *Compacting conversation...*\n\nFirst saving important facts, then summarizing older messages.",
       );
       // memoryFlush runs fact-saving then compaction sequentially
       await ctx.scheduler.runAfter(0, internal.memory.compaction.memoryFlush, {
@@ -397,7 +415,7 @@ async function handleTelegramCommand(
       if (text.startsWith("/")) {
         await sendTelegramMessage(
           chatId,
-          "❓ <b>Unknown command.</b>\n\nType /help for a list of available commands.",
+          "❓ *Unknown command.*\n\nType /help for a list of available commands.",
         );
         return true;
       }
@@ -414,8 +432,8 @@ async function processTelegramCallbackQuery(ctx: any, query: any) {
     await telegramApiCall("editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: "☢️ <b>Nuking all data...</b> Please wait.",
-      parse_mode: "HTML",
+      text: "☢️ *Nuking all data...* Please wait.",
+      parse_mode: "MarkdownV2",
     });
 
     await ctx.scheduler.runAfter(0, internal.users.actions.nukeUserAction, {
@@ -424,14 +442,14 @@ async function processTelegramCallbackQuery(ctx: any, query: any) {
 
     await sendTelegramMessage(
       chatId,
-      "✅ <b>System Reset Complete.</b> All memories and threads have been deleted. API keys preserved.",
+      "✅ *System Reset Complete.* All memories and threads have been deleted. API keys preserved.",
     );
   } else if (data === "nuke_cancel") {
     await telegramApiCall("editMessageText", {
       chat_id: chatId,
       message_id: messageId,
-      text: "❌ <b>Reset Cancelled.</b> No data was deleted.",
-      parse_mode: "HTML",
+      text: "❌ *Reset Cancelled.* No data was deleted.",
+      parse_mode: "MarkdownV2",
     });
   }
 
@@ -509,6 +527,15 @@ export const processMessageQueue = internalAction({
       const messages = pendingText
         .split("\n")
         .filter((m: string) => m.trim() !== "");
+      
+      // Guard against empty messages after filtering
+      if (messages.length === 0) {
+        await ctx.runMutation(internal.users.db.clearPendingMessages, {
+          threadId,
+        });
+        return;
+      }
+      
       const batchPrompt =
         messages.length === 1
           ? messages[0]
@@ -517,18 +544,26 @@ export const processMessageQueue = internalAction({
               .map((m: string, i: number) => `Message ${i + 1}: ${m}`)
               .join("\n");
 
-      const model = await resolveLanguageModel(ctx, threadId);
+      const model = await resolveLanguageModel(ctx, threadId, telegramChatId);
       
       logger.info(`[processMessageQueue] Starting LLM generation`, {
         threadId,
         "ai.model": typeof model === "string" ? model : (model as any)?.model,
       });
 
-      await julesAgent.generateText(
+      const result = await julesAgent.generateText(
         ctx,
         { threadId, userId: telegramChatId },
         { model, prompt: batchPrompt },
       );
+
+      // Send the agent's response directly to Telegram
+      if (result.text && result.text.trim()) {
+        await ctx.runAction(internal.api.telegram.sendChatMessage, {
+          chatId: telegramChatId,
+          message: result.text,
+        });
+      }
 
       await ctx.runMutation(internal.users.db.clearPendingMessages, {
         threadId,
@@ -545,7 +580,7 @@ export const processMessageQueue = internalAction({
       if (isNonRetriableError(error)) {
         await sendTelegramMessage(
           telegramChatId,
-          `❌ <b>Error:</b> ${errorMessage}\n\n<i>Your message is saved. Once you fix the issue (e.g. via /connect), send any message to resume.</i>`,
+          `❌ *Error:* ${errorMessage}\n\n_Your message is saved. Once you fix the issue (e.g. via /connect), send any message to resume._`,
         );
       } else {
         const failures = await ctx.runMutation(
@@ -555,14 +590,14 @@ export const processMessageQueue = internalAction({
         const delayMs = getBackoffDelayMs(failures);
 
         let tip =
-          "<i>You can change your AI provider or model by using /connect. Your message is saved and will resume once you update your settings.</i>";
+          "_You can change your AI provider or model by using /connect. Your message is saved and will resume once you update your settings._";
         if (errorMessage.includes("Jules API key")) {
-          tip = "<b>Tip:</b> Your Jules API key is missing or invalid. Use /connect to set it up.";
+          tip = "*Tip:* Your Jules API key is missing or invalid. Use /connect to set it up.";
         }
 
         await sendTelegramMessage(
           telegramChatId,
-          `❌ <b>Error:</b> ${errorMessage}\n\n${tip}`,
+          `❌ *Error:* ${errorMessage}\n\n${tip}`,
         );
 
         await ctx.scheduler.runAfter(delayMs, internal.api.telegram.processMessageQueue, {
@@ -580,12 +615,18 @@ export const processMessageQueue = internalAction({
 });
 
 export const sendChatMessage = internalAction({
-  args: { chatId: v.string(), message: v.string() },
-  handler: async (ctx: any, args: { chatId: string; message: string }) => {
+  args: { 
+    chatId: v.string(), 
+    message: v.string(),
+    parseMode: v.optional(v.union(v.literal("HTML"), v.literal("MarkdownV2"))),
+  },
+  handler: async (ctx: any, args: { chatId: string; message: string; parseMode?: "HTML" | "MarkdownV2" }) => {
     try {
-      const chunks = chunkHtml(args.message);
+      // Format the message for Telegram (convert to MarkdownV2)
+      const formattedMessage = formatTelegramMessage(args.message);
+      const chunks = chunkMessage(formattedMessage);
       for (const chunk of chunks) {
-        await sendTelegramMessage(args.chatId, chunk);
+        await sendTelegramMessage(args.chatId, chunk, args.parseMode ?? "MarkdownV2");
       }
     } catch (error) {
       logger.error("[sendChatMessage] Error sending message:", error);

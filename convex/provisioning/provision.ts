@@ -25,7 +25,7 @@ export const provisionNewBot = internalAction({
     exaApiKey: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const logMeta = { ownerId: args.ownerId, botName: args.name };
+    const logMeta = { data: { ownerId: args.ownerId, botName: args.name } };
     logger.info("[provision] Starting provisioning", logMeta);
 
     try {
@@ -33,19 +33,19 @@ export const provisionNewBot = internalAction({
       if (!deployInfo) {
         throw new Error("Invalid Convex deploy key format");
       }
-      logger.info("[provision] Parsed deploy key", { ...logMeta, deploymentName: deployInfo.deploymentName });
+      logger.info("[provision] Parsed deploy key", { data: { ...logMeta.data, deploymentName: deployInfo.deploymentName } });
 
       logger.info("[provision] Creating GitHub repo", logMeta);
       const repo = await github.createRepo(args.name, args.description);
-      logger.info("[provision] Repo created", { ...logMeta, repo: repo.fullName });
+      logger.info("[provision] Repo created", { data: { ...logMeta.data, repo: repo.fullName } });
 
       logger.info("[provision] Fetching upstream source", logMeta);
       const sourceFiles = await fetchUpstreamSource();
-      logger.info("[provision] Source files fetched", { ...logMeta, fileCount: sourceFiles.length });
+      logger.info("[provision] Source files fetched", { data: { ...logMeta.data, fileCount: sourceFiles.length } });
 
       logger.info("[provision] Pushing source files to main branch", logMeta);
       const mainSHA = await github.pushInitialCommit(repo.fullName, sourceFiles);
-      logger.info("[provision] Main branch created", { ...logMeta, sha: mainSHA });
+      logger.info("[provision] Main branch created", { data: { ...logMeta.data, sha: mainSHA } });
 
       logger.info("[provision] Creating managed branch", logMeta);
       await github.createBranch(repo.fullName, "managed", mainSHA);

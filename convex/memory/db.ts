@@ -1,12 +1,18 @@
 import { internalQuery, internalMutation } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { v } from "convex/values";
 
 const MEMORY_CHAR_LIMIT = 2200;
 const USER_CHAR_LIMIT = 1375;
+const SKILLS_CHAR_LIMIT = 5000;
 const ENTRY_DELIMITER = "\n\u00a7\n";
 
 function charLimit(target: string): number {
-  return target === "user" ? USER_CHAR_LIMIT : MEMORY_CHAR_LIMIT;
+  switch (target) {
+    case "user": return USER_CHAR_LIMIT;
+    case "skills": return SKILLS_CHAR_LIMIT;
+    default: return MEMORY_CHAR_LIMIT;
+  }
 }
 
 // --- Security scanning ---
@@ -71,7 +77,7 @@ function successResponse(entries: string[], target: string, message?: string) {
 export const getEntries = internalQuery({
   args: {
     userId: v.string(),
-    target: v.union(v.literal("memory"), v.literal("user")),
+    target: v.union(v.literal("memory"), v.literal("user"), v.literal("skills")),
   },
   handler: async (ctx, args) => {
     return await ctx.db
@@ -86,7 +92,7 @@ export const getEntries = internalQuery({
 export const getCharCount = internalQuery({
   args: {
     userId: v.string(),
-    target: v.union(v.literal("memory"), v.literal("user")),
+    target: v.union(v.literal("memory"), v.literal("user"), v.literal("skills")),
   },
   handler: async (ctx, args) => {
     const entries = await ctx.db
@@ -102,7 +108,7 @@ export const getCharCount = internalQuery({
 export const addEntry = internalMutation({
   args: {
     userId: v.string(),
-    target: v.union(v.literal("memory"), v.literal("user")),
+    target: v.union(v.literal("memory"), v.literal("user"), v.literal("skills")),
     content: v.string(),
   },
   handler: async (ctx, args) => {
@@ -152,7 +158,7 @@ export const addEntry = internalMutation({
 export const replaceEntry = internalMutation({
   args: {
     userId: v.string(),
-    target: v.union(v.literal("memory"), v.literal("user")),
+    target: v.union(v.literal("memory"), v.literal("user"), v.literal("skills")),
     oldText: v.string(),
     newContent: v.string(),
   },
@@ -211,7 +217,7 @@ export const replaceEntry = internalMutation({
 export const removeEntry = internalMutation({
   args: {
     userId: v.string(),
-    target: v.union(v.literal("memory"), v.literal("user")),
+    target: v.union(v.literal("memory"), v.literal("user"), v.literal("skills")),
     oldText: v.string(),
   },
   handler: async (ctx, args) => {
@@ -285,6 +291,16 @@ export const resetNudgeCounter = internalMutation({
       .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
       .unique();
     if (user) await ctx.db.patch(user._id, { memoryNudgeCount: 0 });
+  },
+});
+
+export const scheduleBackgroundReview = internalMutation({
+  args: { threadId: v.string(), telegramChatId: v.string() },
+  handler: async (ctx, args) => {
+    await ctx.scheduler.runAfter(0, internal.memory.compaction.backgroundMemoryReview, {
+      threadId: args.threadId,
+      telegramChatId: args.telegramChatId,
+    });
   },
 });
 

@@ -10,9 +10,9 @@ crons.interval(
 );
 
 crons.interval(
-  "check-for-updates",
+  "daily-checks",
   { seconds: 86400 },
-  internal.updater.actions.checkForUpdates,
+  internal.dailyCheck.actions.runDailyChecks,
 );
 
 crons.interval(

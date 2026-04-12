@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, internalQuery, httpAction } from "../_generated/server";
+import { internal } from "../_generated/api";
 
 // ---------------------------------------------------------------------------
 // KV Store (Tools, Definitions, Policies) — all internal
@@ -246,25 +247,10 @@ export const bulkSyncHttp = httpAction(async (ctx, request) => {
     });
   }
 
-  for (const entry of body.entries) {
-    const existing = await ctx.db
-      .query("executor_kv")
-      .withIndex("by_user_ns_key", (q) =>
-        q.eq("userId", body.userId).eq("namespace", entry.namespace).eq("key", entry.key)
-      )
-      .unique();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, { value: entry.value });
-    } else {
-      await ctx.db.insert("executor_kv", {
-        userId: body.userId,
-        namespace: entry.namespace,
-        key: entry.key,
-        value: entry.value,
-      });
-    }
-  }
+  await ctx.runMutation(internal.executor.db.bulkSyncMutationInternal, {
+    userId: body.userId,
+    entries: body.entries,
+  });
 
   return new Response(JSON.stringify({ synced: body.entries.length }), {
     status: 200,
@@ -316,28 +302,11 @@ export const bulkSyncWithReplaceHttp = httpAction(async (ctx, request) => {
   }
 
   // Delete all existing entries for each namespace being replaced
-  for (const ns of body.namespaces) {
-    const existing = await ctx.db
-      .query("executor_kv")
-      .withIndex("by_user_ns", (q) =>
-        q.eq("userId", body.userId).eq("namespace", ns)
-      )
-      .collect();
-
-    for (const entry of existing) {
-      await ctx.db.delete(entry._id);
-    }
-  }
-
-  // Insert all new entries
-  for (const entry of body.entries) {
-    await ctx.db.insert("executor_kv", {
-      userId: body.userId,
-      namespace: entry.namespace,
-      key: entry.key,
-      value: entry.value,
-    });
-  }
+  await ctx.runMutation(internal.executor.db.bulkSyncWithReplaceMutationInternal, {
+    userId: body.userId,
+    entries: body.entries,
+    namespaces: body.namespaces,
+  });
 
   return new Response(JSON.stringify({ synced: body.entries.length, namespaces: body.namespaces }), {
     status: 200,
@@ -387,24 +356,10 @@ export const syncSecretsHttp = httpAction(async (ctx, request) => {
     });
   }
 
-  for (const secret of body.secrets) {
-    const existing = await ctx.db
-      .query("executor_secrets")
-      .withIndex("by_user_secretId", (q) =>
-        q.eq("userId", body.userId).eq("secretId", secret.secretId)
-      )
-      .unique();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, { value: secret.value });
-    } else {
-      await ctx.db.insert("executor_secrets", {
-        userId: body.userId,
-        secretId: secret.secretId,
-        value: secret.value,
-      });
-    }
-  }
+  await ctx.runMutation(internal.executor.db.syncSecretsMutationInternal, {
+    userId: body.userId,
+    secrets: body.secrets,
+  });
 
   return new Response(JSON.stringify({ synced: body.secrets.length }), {
     status: 200,
@@ -453,4 +408,90 @@ export const bulkSyncKvWithReplace = mutation({
       });
     }
   },
+});
+
+export const bulkSyncMutationInternal = internalMutation({
+  args: {
+    userId: v.string(),
+    entries: v.array(v.object({ namespace: v.string(), key: v.string(), value: v.string() })),
+  },
+  handler: async (ctx, args) => {
+    for (const entry of args.entries) {
+      const existing = await ctx.db
+        .query("executor_kv")
+        .withIndex("by_user_ns_key", (q) =>
+          q.eq("userId", args.userId).eq("namespace", entry.namespace).eq("key", entry.key)
+        )
+        .unique();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, { value: entry.value });
+      } else {
+        await ctx.db.insert("executor_kv", {
+          userId: args.userId,
+          namespace: entry.namespace,
+          key: entry.key,
+          value: entry.value,
+        });
+      }
+    }
+  }
+});
+
+export const bulkSyncWithReplaceMutationInternal = internalMutation({
+  args: {
+    userId: v.string(),
+    entries: v.array(v.object({ namespace: v.string(), key: v.string(), value: v.string() })),
+    namespaces: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    for (const ns of args.namespaces) {
+      const existing = await ctx.db
+        .query("executor_kv")
+        .withIndex("by_user_ns", (q) =>
+          q.eq("userId", args.userId).eq("namespace", ns)
+        )
+        .collect();
+
+      for (const entry of existing) {
+        await ctx.db.delete(entry._id);
+      }
+    }
+
+    for (const entry of args.entries) {
+      await ctx.db.insert("executor_kv", {
+        userId: args.userId,
+        namespace: entry.namespace,
+        key: entry.key,
+        value: entry.value,
+      });
+    }
+  }
+});
+
+export const syncSecretsMutationInternal = internalMutation({
+  args: {
+    userId: v.string(),
+    secrets: v.array(v.object({ secretId: v.string(), value: v.string() })),
+  },
+  handler: async (ctx, args) => {
+    for (const secret of args.secrets) {
+      const existing = await ctx.db
+        .query("executor_secrets")
+        .withIndex("by_user_secretId", (q) =>
+          q.eq("userId", args.userId).eq("secretId", secret.secretId)
+        )
+        .unique();
+
+      if (existing) {
+        await ctx.db.patch(existing._id, { value: secret.value });
+      } else {
+        await ctx.db.insert("executor_secrets", {
+          userId: args.userId,
+          secretId: secret.secretId,
+          value: secret.value,
+        });
+      }
+    }
+  }
 });

@@ -282,7 +282,7 @@ export const research = createTool({
         `[research] Starting research: "${args.query.slice(0, 80)}..."`,
       );
 
-      const model = await resolveLanguageModel(ctx, ctx.threadId);
+      const model = await resolveLanguageModel(ctx, ctx.threadId, ctx.userId);
       return await runResearchAgent(
         ctx,
         args.query,

@@ -3,7 +3,7 @@ import { internal, components } from "../_generated/api";
 import { v } from "convex/values";
 import { julesAgent } from "../agent/instance";
 import { resolveLanguageModel } from "../agent/modelResolver";
-import { memory } from "./tool";
+import { manage_memory } from "./tool";
 
 const HEAD_PROTECT = 3;   // protect system + first exchange
 const TAIL_PROTECT = 10;  // protect recent context
@@ -55,7 +55,13 @@ async function runCompaction(ctx: any, threadId: string) {
     threadId,
   });
 
-  const model = await resolveLanguageModel(ctx, threadId);
+  const telegramChatId = await ctx.runQuery(internal.users.db.getChatIdForThread, { threadId });
+  if (!telegramChatId) {
+    console.error(`[compactMemory] Could not find user for thread ${threadId}`);
+    return;
+  }
+
+  const model = await resolveLanguageModel(ctx, threadId, telegramChatId);
 
   const summaryPrompt = existingSummary
     ? `Update this existing conversation summary with new information. Preserve existing facts, add new progress, move "In Progress" items to "Done" if completed.
@@ -101,9 +107,8 @@ Output a structured summary with sections:
   console.log(`[compactMemory] Compacted ${middle.length} messages into summary`);
 }
 
-// Pre-compaction flush: ask the LLM to save important facts before compressing,
-// then run compaction sequentially to guarantee facts are saved first.
-export const memoryFlush = internalAction({
+// The standalone Hermes-style Background Review Subagent
+export const backgroundMemoryReview = internalAction({
   args: {
     threadId: v.string(),
     telegramChatId: v.string(),
@@ -118,7 +123,7 @@ export const memoryFlush = internalAction({
           threadId: args.threadId,
           order: "desc",
           statuses: ["success"],
-          paginationOpts: { numItems: 50, cursor: null },
+          paginationOpts: { numItems: 25, cursor: null }, // Last 25 messages is plenty for periodic review
         },
       );
       const messages = msgResult.page.reverse();
@@ -126,6 +131,7 @@ export const memoryFlush = internalAction({
         .map((m: any) => `[${m.message?.role || "unknown"}]: ${extractText(m.message)}`)
         .join("\n\n");
 
+      // We only fetch current memory sizing, don't inject the whole memory block, to keep extraction focused.
       const existingMemory = await ctx.runQuery(internal.memory.db.getEntries, {
         userId: args.telegramChatId,
         target: "memory",
@@ -134,35 +140,63 @@ export const memoryFlush = internalAction({
         userId: args.telegramChatId,
         target: "user",
       });
+      const existingSkills = await ctx.runQuery(internal.memory.db.getEntries, {
+        userId: args.telegramChatId,
+        target: "skills",
+      });
+      
       const existingText = [
         ...existingMemory.map((e: any) => e.content),
         ...existingUser.map((e: any) => e.content),
+        ...existingSkills.map((e: any) => e.content),
       ].join("\n");
 
-      const flushPrompt = `You are about to compress the conversation history. Before that, save any important facts to memory that should persist.
-Existing memory (don't repeat these):
-${existingText || "(empty)"}
-Recent conversation:
+      const reviewPrompt = `You are an invisible Background Memory Reviewer.
+Your job is to read the recent conversation and use the manage_memory tool to save any important facts, user preferences, or procedural skills that the Main Agent learned.
+If you use the tool, those facts will be permanently injected into the Main Agent's "brain" for future turns.
+Existing memory (do not duplicate these):
+${existingText ? "[[[ " + existingText + " ]]]" : "(empty)"}
+
+Recent conversation transcript:
 ${conversationText}
+
 Instructions:
-- If there are facts worth remembering (user preferences, corrections, decisions, environment facts), call the memory tool to save them.
-- If nothing is worth saving, just say "Nothing to save."
-- Focus on: user preferences, corrections, decisions, project conventions, lessons learned.
-- Do NOT save: task progress, session outcomes, temporary state, things already in existing memory.`;
+- If there are facts worth remembering (user preferences, decisions, environment facts, valid tool usage wrappers), call the manage_memory tool.
+- If nothing is worth saving, simply ignore and exit.
+- Focus on: user preferences, corrections, project conventions, API constraints, lessons learned, and procedural skills.
+- Do NOT save: temporary state, session outcomes, task progress.`;
 
       await julesAgent.generateText(
         ctx,
         { threadId: args.threadId, userId: args.telegramChatId },
         {
           model,
-          prompt: flushPrompt,
-          tools: { memory },
+          prompt: reviewPrompt,
+          tools: { manage_memory },
         },
         { storageOptions: { saveMessages: "none" } },
       );
 
-      console.log(`[memoryFlush] Completed for thread ${args.threadId}`);
+      console.log(`[backgroundMemoryReview] Completed for thread ${args.threadId}`);
+    } catch (err) {
+      console.error("[backgroundMemoryReview] Failed:", err);
+    }
+  },
+});
 
+// Pre-compaction flush: ask the LLM to save important facts before compressing,
+// then run compaction sequentially to guarantee facts are saved first.
+export const memoryFlush = internalAction({
+  args: {
+    threadId: v.string(),
+    telegramChatId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    try {
+      await ctx.runAction(internal.memory.compaction.backgroundMemoryReview, {
+        threadId: args.threadId,
+        telegramChatId: args.telegramChatId,
+      });
       // Run compaction sequentially after flush completes
       await runCompaction(ctx, args.threadId);
     } catch (err) {

@@ -1,7 +1,7 @@
 import { httpRouter } from "convex/server";
 import type { GenericActionCtx } from "convex/server";
 import { httpAction } from "./_generated/server";
-import { internal, components } from "./_generated/api";
+import { api, internal, components } from "./_generated/api";
 import { logger } from "./utils/logger";
 import { registerStaticRoutes } from "@convex-dev/static-hosting";
 import type {
@@ -9,6 +9,12 @@ import type {
   SaveApiKeyBody,
   TestConnectionBody,
 } from "./types";
+import { ipcEndpoint } from "./executor/ipc";
+import {
+  bulkSyncHttp,
+  bulkSyncWithReplaceHttp,
+  syncSecretsHttp,
+} from "./executor/db";
 
 const http = httpRouter();
 const CORS_HEADERS = {
@@ -328,37 +334,50 @@ http.route({
 http.route({
   path: "/executor/ipc",
   method: "POST",
-  handler: internal.executor.ipc.ipcEndpoint,
+  handler: ipcEndpoint,
 });
 
 // Executor Bulk Sync endpoint (called from CLI with Bearer auth)
 http.route({
   path: "/executor/sync",
   method: "POST",
-  handler: internal.executor.db.bulkSyncHttp,
+  handler: bulkSyncHttp,
 });
 
 // Executor Bulk Sync with Replace (namespace-level replace semantics)
 http.route({
   path: "/executor/sync/replace",
   method: "POST",
-  handler: internal.executor.db.bulkSyncWithReplaceHttp,
+  handler: bulkSyncWithReplaceHttp,
 });
 
 // Executor Secrets Sync endpoint
 http.route({
   path: "/executor/sync/secrets",
   method: "POST",
-  handler: internal.executor.db.syncSecretsHttp,
+  handler: syncSecretsHttp,
 });
 
 http.route({
-  path: "/api/health",
+  path: "/api/llmCalls",
   method: "GET",
-  handler: httpAction(async (_ctx, _request) => {
-    return new Response(JSON.stringify({ status: "ok" }), {
-      headers: { "Content-Type": "application/json" },
-    });
+  handler: httpAction(async (ctx, request) => {
+    const authHeader = request.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return corsResponse({ error: "Missing or invalid Authorization header" }, 401);
+    }
+
+    const deployKey = authHeader.slice(7);
+    const expectedKey = process.env.CONVEX_DEPLOY_KEY;
+    if (!expectedKey || deployKey !== expectedKey) {
+      return corsResponse({ error: "Invalid deploy key" }, 401);
+    }
+
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get("limit") ?? "50", 10);
+    const calls = await ctx.runQuery(api["llmCalls/query"].listLlmCalls, { limit });
+
+    return corsResponse({ llmCalls: calls });
   }),
 });
 

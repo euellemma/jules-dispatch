@@ -157,8 +157,14 @@ export async function spawnSessionEventHandler(
     tasks: TaskDoc[];
   },
 ): Promise<void> {
+  const telegramChatId = await ctx.runQuery(internal.users.db.getChatIdForThread, { threadId: args.mainThreadId });
+  if (!telegramChatId) {
+    console.error(`[spawnHandler] Could not find user for thread ${args.mainThreadId}`);
+    return;
+  }
+
   // Resolve model inside the handler (cannot pass LanguageModel objects through action args)
-  const model = await resolveLanguageModel(ctx, args.mainThreadId);
+  const model = await resolveLanguageModel(ctx, args.mainThreadId, telegramChatId);
 
   // Find this session's task list
   const sessionTaskKey = `session:${args.julesSessionId}:tasks`;

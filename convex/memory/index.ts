@@ -1,4 +1,4 @@
-export { memory } from "./tool";
+export { manage_memory } from "./tool";
 export {
   getEntries,
   getCharCount,

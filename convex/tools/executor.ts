@@ -14,7 +14,7 @@ export const execute_code = createTool({
   inputSchema: z.object({
     code: z.string().describe("The TypeScript code to execute. Must return a value or a promise."),
   }),
-  execute: async (ctx, args) => {
+  execute: async (ctx, args): Promise<string> => {
     const threadId = ctx.threadId || "global_user";
     try {
       logger.tool(`[execute_code] Sending code to Daytona`, { code: args.code }, { threadId });

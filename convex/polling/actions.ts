@@ -58,7 +58,10 @@ export const pollJulesActivities = internalAction({
     let sessionMap: Map<string, JulesApiSession>;
     let jules: any;
     try {
-      jules = await getJulesClient(ctx, sessions[0]!.threadId);
+      const telegramChatId = await ctx.runQuery(internal.users.db.getChatIdForThread, {
+        threadId: sessions[0]!.threadId
+      });
+      jules = await getJulesClient(ctx, telegramChatId);
       const allSessions = await jules.sessions({}).all();
       sessionMap = new Map(
         allSessions.map((s: JulesApiSession) => [s.id, s]),
@@ -251,9 +254,7 @@ export const pollJulesActivities = internalAction({
       }
     }
 
-    console.log(
-      `[pollJulesActivities] Poll cycle completed in ${Date.now() - cronStartMs}ms`,
-    );
+
   },
 });
 
