@@ -19,16 +19,13 @@ export const execute = internalAction({
     logger.info("Daytona execution requested", { threadId, data: { codeLength: args.code.length } });
 
     // 1. Resolve Daytona API Key
-    const user = await ctx.runQuery(internal.users.db.getProviderConfig, {
-      telegramChatId: args.userId,
-    }) as any;    
-    const apiKey = user?.daytonaApiKey || process.env.DAYTONA_API_KEY;
+    const apiKey = process.env.DAYTONA_API_KEY;
     
     if (!apiKey) {
       logger.error("Daytona API Key missing", new Error("No API key configured"), { threadId });
       return {
         result: null,
-        error: "Daytona API Key not found. Please set DAYTONA_API_KEY in your environment or user settings.",
+        error: "Daytona API Key not found. Please set DAYTONA_API_KEY in your environment.",
         logs: []
       };
     }

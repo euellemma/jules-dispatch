@@ -10,7 +10,7 @@ type ActionCtx = GenericActionCtx<any>;
 
 async function fetchAllJulesSessions(ctx: ActionCtx, threadId?: string): Promise<JulesApiSession[]> {
   try {
-    const jules = await getJulesClient(ctx, threadId);
+    const jules = await getJulesClient(ctx);
     const sessions = await jules.sessions({}).all();
     return sessions as unknown as JulesApiSession[];
   } catch (error: any) {
@@ -25,7 +25,7 @@ async function fetchAllJulesSessions(ctx: ActionCtx, threadId?: string): Promise
 
 async function fetchSessionActivities(ctx: ActionCtx, userId: string | undefined, sessionId: string): Promise<string> {
   try {
-    const jules = await getJulesClient(ctx, userId);
+    const jules = await getJulesClient(ctx);
     const session = await jules.session(sessionId);
     const { activities } = await session.activities.list({});
     return formatActivityLog(activities);
@@ -259,6 +259,7 @@ export const getSessionDetails = internalAction({
   args: {
     sessionIds: v.array(v.string()),
     threadId: v.optional(v.string()),
+    userId: v.optional(v.string()),
     sessions: v.optional(v.array(v.object({
       julesSessionId: v.string(),
       title: v.optional(v.string()),
@@ -281,6 +282,15 @@ export const getSessionDetails = internalAction({
     }))),
   },
   handler: async (ctx, args): Promise<SessionQueryResult> => {
+    // Resolve userId from args or lookup from threadId
+    let userId = args.userId;
+    if (!userId && args.threadId) {
+      userId = await ctx.runQuery(internal.users.db.getChatIdForThread, { threadId: args.threadId });
+    }
+    if (!userId) {
+      throw new Error("userId is required");
+    }
+
     const preFetchedMap = new Map<string, {
       julesSessionId: string;
       title?: string;
@@ -307,7 +317,7 @@ export const getSessionDetails = internalAction({
     if (!args.sessions || args.sessions.length === 0) {
       try {
         [julesSessions, dbMap] = (await Promise.all([
-          fetchAllJulesSessions(ctx, args.userId).then(sessions => {
+          fetchAllJulesSessions(ctx, userId).then(sessions => {
             const filtered = sessions.filter((js: JulesApiSession) =>
               args.sessionIds.includes(js.id)
             );
@@ -343,7 +353,7 @@ export const getSessionDetails = internalAction({
         continue;
       }
 
-      const activities = await fetchSessionActivities(ctx, args.userId, id);
+      const activities = await fetchSessionActivities(ctx, userId, id);
 
       results.push({
         julesSessionId: id,

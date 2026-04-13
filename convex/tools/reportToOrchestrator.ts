@@ -43,27 +43,23 @@ export function createReportToOrchestratorTool(
 export const wakeMainAgent = internalAction({
   args: { mainThreadId: v.string() },
   handler: async (ctx, args) => {
-    const isRunning = await ctx.runQuery(
-      internal.users.db.isAgentRunning,
+    // Self-draining queue: always trigger queue processing
+    // The queue will handle deduplication naturally via atomic pop
+    const chatId = await ctx.runQuery(
+      internal.users.db.getChatIdForThread,
       { threadId: args.mainThreadId },
     );
-    if (!isRunning) {
-      const chatId = await ctx.runQuery(
-        internal.users.db.getChatIdForThread,
-        { threadId: args.mainThreadId },
+    if (chatId) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.api.telegram.processMessageQueue,
+        {
+          threadId: args.mainThreadId,
+          telegramChatId: chatId,
+        },
       );
-      if (chatId) {
-        await ctx.scheduler.runAfter(
-          0,
-          internal.api.telegram.processMessageQueue,
-          {
-            threadId: args.mainThreadId,
-            telegramChatId: chatId,
-          },
-        );
-      }
-      // If no chatId, message stays in pendingMessageText.
-      // It will be drained when the user next interacts (triggers processMessageQueue).
     }
+    // If no chatId, message stays in pendingMessageText.
+    // It will be drained when the user next interacts (triggers processMessageQueue).
   },
 });

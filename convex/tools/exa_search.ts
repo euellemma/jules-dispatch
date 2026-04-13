@@ -7,18 +7,12 @@ import { resolveLanguageModel } from "../agent/modelResolver";
 const DELETE_RESEARCH_THREADS = true;
 
 async function getExaApiKey(ctx: any): Promise<string | null> {
-  const telegramChatId = await ctx.runQuery(
-    (internal as any).users.db.getChatIdForThread,
-    { threadId: ctx.threadId },
+  // Get from singleton bot config (saves 2 DB reads vs per-user lookup)
+  const config = await ctx.runQuery(
+    (internal as any).config.botConfig.getConfig,
+    {},
   );
-  if (telegramChatId) {
-    const res = await ctx.runQuery(
-      (internal as any).users.db.getProviderConfig,
-      { telegramChatId },
-    );
-    if (res.exaApiKey) return res.exaApiKey;
-  }
-  return null;
+  return config?.exaApiKey ?? null;
 }
 
 /**
@@ -278,6 +272,8 @@ export const research = createTool({
     try {
       if (!ctx.threadId)
         throw new Error("Tool must be called within a thread context.");
+      if (!ctx.userId)
+        throw new Error("Tool must be called within a user context.");
       console.log(
         `[research] Starting research: "${args.query.slice(0, 80)}..."`,
       );

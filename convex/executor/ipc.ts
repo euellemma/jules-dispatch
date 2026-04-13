@@ -125,17 +125,6 @@ interface GoogleDiscoveryToolDef {
 // OpenAPI Tool Invoker
 // ---------------------------------------------------------------------------
 
-async function resolveSecret(
-  ctx: ActionCtx,
-  userId: string,
-  secretId: string,
-): Promise<string | null> {
-  return await ctx.runQuery(internal.executor.db.getSecret, {
-    userId,
-    secretId,
-  });
-}
-
 function resolvePath(
   template: string,
   args: Record<string, unknown>,
@@ -227,6 +216,17 @@ function resolveHeaderParams(
   }
 
   return headers;
+}
+
+async function resolveSecret(
+  ctx: ActionCtx,
+  userId: string,
+  secretId: string,
+): Promise<string | null> {
+  return await ctx.runQuery(internal.executor.db.getSecret, {
+    userId,
+    secretId,
+  });
 }
 
 async function resolveHeaders(

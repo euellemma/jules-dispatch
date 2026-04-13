@@ -1,0 +1,142 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Jules Dispatch API",
+    "description": "API for sending messages and uploading files to the Jules Dispatch bot. Each deployment has a unique Convex site URL.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "{convexSiteUrl}",
+      "variables": {
+        "convexSiteUrl": {
+          "default": "https://your-site.convex.site",
+          "description": "Your unique Convex site URL from .env.local CONVEX_SITE_URL. Each deployment has a different URL."
+        }
+      }
+    }
+  ],
+  "paths": {
+    "/api/send-message": {
+      "post": {
+        "operationId": "sendMessage",
+        "summary": "Send a message to the Jules bot",
+        "description": "Sends a text message to the Jules Dispatch bot, which will be processed by the agent. Requires CONVEX_DEPLOY_KEY for authentication.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "description": "The message text to send to the bot"
+                  }
+                },
+                "required": ["message"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message sent successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "threadId": { "type": "string" },
+                    "agentTriggered": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing message or no user configured"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing deploy key"
+          }
+        }
+      }
+    },
+    "/api/upload-file": {
+      "post": {
+        "operationId": "uploadFile",
+        "summary": "Upload a file to the Jules bot",
+        "description": "Uploads a file to the Jules Dispatch bot with optional caption and prompt. Files are stored in Convex storage and notifications are sent via Telegram. Max file size: 20MB. Requires CONVEX_DEPLOY_KEY for authentication.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "The file to upload (max 20MB)"
+                  },
+                  "caption": {
+                    "type": "string",
+                    "description": "Optional caption for the file"
+                  },
+                  "prompt": {
+                    "type": "string",
+                    "description": "Optional prompt to process after file upload"
+                  }
+                },
+                "required": ["file"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "File uploaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "fileId": { "type": "string" },
+                    "filename": { "type": "string" },
+                    "size": { "type": "number" },
+                    "threadId": { "type": "string" },
+                    "promptProcessed": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing file or no user configured"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing deploy key"
+          },
+          "413": {
+            "description": "File too large (exceeds 20MB limit)"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "CONVEX_DEPLOY_KEY from your .env.local"
+      }
+    }
+  },
+  "security": [
+    { "bearerAuth": [] }
+  ]
+}

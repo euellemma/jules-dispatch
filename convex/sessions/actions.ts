@@ -29,7 +29,20 @@ export const createSession = internalAction({
   },
   handler: async (ctx, args) => {
     try {
-      const jules = await getJulesClient(ctx, args.userId);
+      // Get userId from threadId or fallback to any existing user
+      let userId: string | undefined;
+      if (args.threadId) {
+        userId = await ctx.runQuery(internal.users.db.getChatIdForThread, { threadId: args.threadId });
+      }
+      if (!userId) {
+        const user = await ctx.runQuery(internal.users.db.getAnyExistingUser);
+        userId = user?.telegramChatId;
+      }
+      if (!userId) {
+        throw new Error("No user configured");
+      }
+
+      const jules = await getJulesClient(ctx);
       const source = args.githubRepo && args.baseBranch ? {
         github: args.githubRepo,
         baseBranch: args.baseBranch
@@ -62,7 +75,7 @@ export const sendMessage = internalAction({
   handler: async (ctx, args) => {
     try {
       const userId = await getUserIdForSession(ctx, args.sessionId);
-      const jules = await getJulesClient(ctx, userId);
+      const jules = await getJulesClient(ctx);
       await withRetry(async () => {
         const session = await jules.session(args.sessionId);
         await session.send(args.prompt);
@@ -84,7 +97,7 @@ export const approvePlan = internalAction({
   handler: async (ctx, args) => {
     try {
       const userId = await getUserIdForSession(ctx, args.sessionId);
-      const jules = await getJulesClient(ctx, userId);
+      const jules = await getJulesClient(ctx);
       await withRetry(async () => {
         const session = await jules.session(args.sessionId);
         await session.approve();
@@ -130,7 +143,7 @@ export const getSessionActivities = internalAction({
   handler: async (ctx, args) => {
     try {
       const userId = await getUserIdForSession(ctx, args.sessionId);
-      const jules = await getJulesClient(ctx, userId);
+      const jules = await getJulesClient(ctx);
       const session = await jules.session(args.sessionId);
       const { activities: activitiesResult } = await session.activities.list({});
       

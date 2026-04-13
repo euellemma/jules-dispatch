@@ -25,6 +25,8 @@ import { parseDeployKey, runConvexDeploy, buildAndUploadWeb, setupTelegramWebhoo
 import { runUpdateCommand } from "./commands/update.js";
 import { runDeployCommand } from "./commands/deploy.js";
 import { runSyncCommand } from "./commands/sync.js";
+import { runSendMessageCommand } from "./commands/send-message.js";
+import { runUploadFileCommand } from "./commands/upload-file.js";
 import { cliLogger } from "./utils/logger.js";
 
 const program = new Command();
@@ -566,6 +568,36 @@ program
       await runSyncCommand();
     } catch (error) {
       cliLogger.error("Sync command failed", error instanceof Error ? error : new Error(String(error)));
+      process.exit(1);
+    }
+  });
+
+program
+  .command("send-message [message]")
+  .description("Send a message to your bot (reads from stdin if no message provided)")
+  .option("--json", "Output raw JSON")
+  .option("--wait", "Wait for agent response")
+  .action(async (message, options) => {
+    try {
+      await runSendMessageCommand(message, options);
+    } catch (error) {
+      cliLogger.error("Send message command failed", error instanceof Error ? error : new Error(String(error)));
+      process.exit(1);
+    }
+  });
+
+program
+  .command("upload-file <file>")
+  .description("Upload a file to your bot")
+  .option("--prompt <prompt>", "Optional prompt to process the file")
+  .option("--caption <caption>", "Optional caption for the file")
+  .option("--json", "Output raw JSON")
+  .option("--wait", "Wait for agent response (requires --prompt)")
+  .action(async (file, options) => {
+    try {
+      await runUploadFileCommand(file, options);
+    } catch (error) {
+      cliLogger.error("Upload file command failed", error instanceof Error ? error : new Error(String(error)));
       process.exit(1);
     }
   });

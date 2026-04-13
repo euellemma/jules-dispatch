@@ -39,7 +39,7 @@ export const checkProvisionedBots = internalAction({
 
             await ctx.runAction(internal.api.telegram.sendChatMessage, {
               chatId: bot.ownerId,
-              message: `⏰ <b>Deployment timed out</b>\n\nBot "${bot.name}" deployment is taking too long. No workflow runs detected in 30 minutes.\n\nCheck your GitHub repo: https://github.com/${bot.githubRepo}/actions`,
+              message: `⏰ *Deployment timed out*\n\nBot "${bot.name}" deployment is taking too long\. No workflow runs detected in 30 minutes\.\n\nCheck your GitHub repo: https://github.com/${bot.githubRepo}/actions`,
             });
           }
           continue;
@@ -71,7 +71,7 @@ export const checkProvisionedBots = internalAction({
 
             await ctx.runAction(internal.api.telegram.sendChatMessage, {
               chatId: bot.ownerId,
-              message: `✅ <b>${bot.name} is live!</b>\n\nDashboard: ${bot.convexSiteUrl}/settings\nRepo: https://github.com/${bot.githubRepo}\n\nYou can now message the new bot on Telegram!`,
+              message: `✅ *${bot.name} is live!*\n\nDashboard: ${bot.convexSiteUrl}/settings\nRepo: https://github.com/${bot.githubRepo}\n\nYou can now message the new bot on Telegram!`,
             });
           } else {
             logger.error("[provisioning-poll] Deployment failed", undefined, {
@@ -92,7 +92,7 @@ export const checkProvisionedBots = internalAction({
 
             await ctx.runAction(internal.api.telegram.sendChatMessage, {
               chatId: bot.ownerId,
-              message: `❌ <b>Deployment failed</b> for ${bot.name}\nConclusion: ${latestRun.conclusion}\n\nCheck logs: ${latestRun.htmlUrl}`,
+              message: `❌ *Deployment failed* for ${bot.name}\nConclusion: ${latestRun.conclusion}\n\nCheck logs: ${latestRun.htmlUrl}`,
             });
           }
         }

@@ -10,7 +10,9 @@ export const vfs = createTool({
     "- ls: List directory contents (default: root /)\n" +
     "- read: Read file content by VFS path\n" +
     "- send: Send files to Telegram (supports zip bundling)\n" +
-    "- register: Rename unregistered uploads from inbox (assigns kebab-case name)",
+    "- register: Rename unregistered uploads from inbox (assigns kebab-case name)\n\n" +
+    "Path patterns: /uploads/{name} (registered), /uploads/_inbox/{name} (unregistered), /sessions/{session-name}/files/{repo-path}\n" +
+    "IMPORTANT: Jules sessions have NO access to uploaded (VFS) files — never ask Jules to read them.",
   inputSchema: z.discriminatedUnion("action", [
     z.object({
       action: z.literal("ls"),

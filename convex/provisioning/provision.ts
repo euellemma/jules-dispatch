@@ -104,9 +104,10 @@ export const provisionNewBot = internalAction({
         },
       });
 
+      const escapeMdv2 = (text: string) => text.replace(/([_\*\[\]\(\)~`>#+\-=|{}\.!])/g, '\\$1');
       await ctx.runAction(internal.api.telegram.sendChatMessage, {
         chatId: args.ownerId,
-        message: `❌ <b>Provisioning failed</b>\n\nBot: ${args.name}\nError: ${error instanceof Error ? error.message : String(error)}\n\nYou can ask me to retry or check the details.`,
+        message: `❌ *Provisioning failed*\n\nBot: ${args.name}\nError: ${escapeMdv2(error instanceof Error ? error.message : String(error))}\n\nYou can ask me to retry or check the details.`,
       });
 
       return {

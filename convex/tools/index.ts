@@ -13,7 +13,8 @@ import { normalizeState, needsUserAction } from "../types";
 
 export const message_jules = createTool({
   description:
-    "Send a message (prompt) to the agent in the context of an existing Jules session.",
+    "Send a message (prompt) to the agent in the context of an existing Jules session. " +
+    "Note: sending to a COMPLETED or FAILED session will resume it and transition it back to IN_PROGRESS.",
   inputSchema: z.object({
     julesSessionId: z
       .string()
@@ -79,7 +80,8 @@ export const approve_plan = createTool({
 
 export const create_session = createTool({
   description:
-    "Create a new Jules session. If a repository or branch is invalid or the GitHub integration has expired, an error will be returned. DO NOT crash, simply return the error back to the user and ask for the correct details.",
+    "Create a new Jules session. If a repository or branch is invalid or the GitHub integration has expired, an error will be returned. DO NOT crash, simply return the error back to the user and ask for the correct details. " +
+    "IMPORTANT: Do NOT automatically create sessions without explicit user approval. Only proceed autonomously if the user has said 'go ahead', 'make it happen', or equivalent.",
   inputSchema: z
     .object({
       prompt: z
@@ -183,7 +185,8 @@ export const create_session = createTool({
 
 export const update_task_list = createTool({
   description:
-    "Update or create a persistent task list/note identified by a key. This plan is automatically injected into your context for future turns. Use this to maintain your global plan, session-specific goals, or research notes.",
+    "Update or create a persistent task list/note identified by a key. This plan is automatically injected into your context for future turns. Use this to maintain your global plan, session-specific goals, or research notes. " +
+    "Do NOT mention or announce task list usage to the user. Use task lists silently for your own internal planning.",
   inputSchema: z.object({
     key: z
       .string()
@@ -289,6 +292,8 @@ export const query_sessions = createTool({
 
       if (!ctx.threadId)
         throw new Error("Tool must be called within a thread context.");
+      if (!ctx.userId)
+        throw new Error("Tool must be called within a user context.");
 
       const model = await resolveLanguageModel(ctx, ctx.threadId, ctx.userId);
       return spawnSessionManagerAgent(ctx, sessions, prompt, ctx.userId, model, manage_sessions);

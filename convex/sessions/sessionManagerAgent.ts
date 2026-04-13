@@ -237,12 +237,21 @@ export async function spawnSessionManagerAgent(
       julesSessionId: z.string().describe("The Jules session ID to inspect."),
     }),
     execute: async (subCtx, args) => {
+      // Get userId from threadId
+      const userId = await ctx.runQuery(
+        internal.users.db.getChatIdForThread,
+        { threadId: originalThreadId }
+      );
+      if (!userId) {
+        return "Error: Could not find user for this session";
+      }
+
       // Fetch live data from API instead of using prefetched sessions
       const result = await ctx.runAction(
         internal.sessions.sessionManager.getSessionDetails,
         {
           sessionIds: [args.julesSessionId],
-          userId: originalUserId,
+          userId,
           // Not passing 'sessions' param - forces live fetch from API
         },
       );

@@ -7,29 +7,30 @@ import { jules as julesSdk } from "@google/jules-sdk";
 import { INITIAL_CONFIG } from "../config/initial";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getJulesApiKey(ctx: any, userId?: string): Promise<string> {
-  if (userId) {
-    const res = await ctx.runQuery(
-      (internal as any).users.db.getProviderConfig,
-      { telegramChatId: userId }
-    ) as { julesApiKey?: string } | null;
-
-    if (res?.julesApiKey) return res.julesApiKey;
+async function getJulesApiKey(ctx: any): Promise<string> {
+  // Get from singleton bot config (saves 1 DB read vs per-user lookup)
+  const config = await ctx.runQuery(
+    (internal as any).config.botConfig.getConfig,
+    {},
+  );
+  
+  if (config?.julesApiKey) {
+    return config.julesApiKey;
   }
 
-  // Fall back to initial config (for testing mode cron jobs)
+  // Fall back to env var (for backward compatibility)
   if (INITIAL_CONFIG.julesApiKey) {
     return INITIAL_CONFIG.julesApiKey;
   }
 
   throw new Error(
-    "Jules API key not configured. Use /connect to set it up."
+    "Jules API key missing. Configure it in /settings page or set JULES_API_KEY env var."
   );
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getJulesClient(ctx: any, userId?: string) {
-  const apiKey = await getJulesApiKey(ctx, userId);
+export async function getJulesClient(ctx: any) {
+  const apiKey = await getJulesApiKey(ctx);
   return julesSdk.with({ apiKey });
 }
 

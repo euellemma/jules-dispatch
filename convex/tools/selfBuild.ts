@@ -8,6 +8,7 @@ export const provision_bot = createTool({
   description:
     "Create a new Jules Dispatch bot instance. This provisions a complete new bot: creates a GitHub repo, pushes source code, sets up CI/CD deployment pipeline, and monitors until the bot is live. " +
     "You need from the user: a name, description, Telegram bot token, and Convex deploy key. All other keys are copied from your own configuration. " +
+    "Collect required info one at a time in this order: name → description → Telegram bot token → Convex deploy key. " +
     "The new bot will be deployed via GitHub Actions and will be live in a few minutes.",
   inputSchema: z.object({
     name: z.string().describe("A short name for the new bot (used as the GitHub repo name). Must be a valid GitHub repo name: lowercase, hyphens, no spaces."),
@@ -22,19 +23,19 @@ export const provision_bot = createTool({
 
     await ctx.runAction(internal.api.telegram.sendChatMessage, {
       chatId: ctx.threadId,
-      message: `🚀 <b>Provisioning ${args.name}...</b>\n\nCreating GitHub repo, pushing source code, and setting up deployment. This takes 2-5 minutes. I'll let you know when it's live.`,
+      message: `🚀 *Provisioning ${args.name}...*\n\nCreating GitHub repo, pushing source code, and setting up deployment\. This takes 2\-5 minutes\. I'll let you know when it's live.`,
     });
 
     const userId = ctx.userId || ctx.threadId;
-    const user = await ctx.runQuery(internal.users.db.getProviderConfig, {
-      telegramChatId: userId,
-    });
+    
+    // Get singleton bot config (saves DB read)
+    const botConfig = await ctx.runQuery(internal.config.botConfig.getConfig, {});
 
-    if (!user) {
-      return "Error: Could not find your user configuration. Make sure you've set up your account first.";
+    if (!botConfig) {
+      return "Error: Bot configuration not found. Make sure you've set up your account first.";
     }
 
-    if (!user.providerConfig) {
+    if (!botConfig.providerConfig) {
       return "Error: Your LLM provider is not configured. Set it up first in settings.";
     }
 
@@ -65,13 +66,13 @@ export const provision_bot = createTool({
       description: args.description,
       telegramBotToken: args.telegramBotToken,
       convexDeployKey: args.convexDeployKey,
-      julesApiKey: user.julesApiKey || "",
+      julesApiKey: botConfig.julesApiKey || "",
       githubPat,
-      llmEndpoint: user.providerConfig.endpoint,
-      llmModel: user.providerConfig.model,
-      llmApiKey: user.providerConfig.apiKey,
-      llmSdkType: user.providerConfig.sdkType,
-      exaApiKey: user.exaApiKey || undefined,
+      llmEndpoint: botConfig.providerConfig.endpoint,
+      llmModel: botConfig.providerConfig.model,
+      llmApiKey: botConfig.providerConfig.apiKey,
+      llmSdkType: botConfig.providerConfig.sdkType,
+      exaApiKey: botConfig.exaApiKey || undefined,
     });
 
     if (result.success) {

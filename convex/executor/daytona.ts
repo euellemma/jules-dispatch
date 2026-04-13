@@ -5,9 +5,16 @@ import * as Effect from "effect/Effect";
 import * as Data from "effect/Data";
 import * as Schema from "effect/Schema";
 import crypto from "crypto";
+import { Buffer } from "buffer";
 import { internal } from "../_generated/api";
 import type { CodeExecutor, ExecuteResult } from "./types";
 import { logger } from "../utils/logger";
+
+// ---------------------------------------------------------------------------
+// Debug Mode Configuration
+// ---------------------------------------------------------------------------
+
+const DEBUG_MODE = true; // Hardcoded to true for streaming logs by default
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -72,7 +79,7 @@ const getOrCreateSandbox = (
   ctx: any, // Convex internal action context
   threadId: string,
 ): Effect.Effect<{ sandbox: Sandbox; ipcToken: string }, DaytonaError> =>
-  Effect.gen(async function* () {
+  Effect.gen(function* () {
     // 1. Check Convex for cached session
     const session = yield* Effect.tryPromise({
       try: () => ctx.runQuery(internal.executor.db.getSession, { userId }),
@@ -149,7 +156,7 @@ const getOrCreateSandbox = (
       data: { image },
     });
     const newSandbox = (yield* Effect.tryPromise({
-      try: () => daytona.createSandbox({ image }),
+      try: () => daytona.create({ image }),
       catch: (e) =>
         new DaytonaError({
           message: "Failed to create Daytona sandbox",
@@ -183,6 +190,110 @@ const getOrCreateSandbox = (
     return { sandbox: newSandbox, ipcToken };
   });
 
+// ---------------------------------------------------------------------------
+// Streaming Execution with Real-time Logs
+// ---------------------------------------------------------------------------
+
+/**
+ * executeWithStreaming — Executes code using session-based streaming.
+ * Logs are emitted in real-time via callbacks to the Convex logger.
+ */
+const executeWithStreaming = (
+  sandbox: Sandbox,
+  shim: string,
+  threadId: string,
+): Effect.Effect<ExecuteResult, DaytonaError> =>
+  Effect.gen(function* () {
+    const sessionId = `exec-${crypto.randomUUID()}`;
+    const logs: string[] = [];
+    let result: unknown = null;
+    let error: string | undefined = undefined;
+    let ipcBuffer = ""; // Buffer for partial IPC messages
+
+    logger.info("Starting streaming execution", { threadId, data: { sessionId } });
+
+    try {
+      // 1. Create session
+      yield* Effect.tryPromise({
+        try: () => sandbox.process.createSession(sessionId),
+        catch: (e) => new DaytonaError({ message: "Failed to create session", cause: e }),
+      });
+
+      // 2. Write shim to file
+      const shimPath = `/tmp/${sessionId}.js`;
+      yield* Effect.tryPromise({
+        try: () => sandbox.fs.uploadFiles([{
+          source: Buffer.from(shim),
+          destination: shimPath
+        }]),
+        catch: (e) => new DaytonaError({ message: "Failed to upload shim file", cause: e }),
+      });
+
+      // 3. Execute command async (Node.js execution)
+      const command = yield* Effect.tryPromise({
+        try: () =>
+          sandbox.process.executeSessionCommand(sessionId, {
+            command: `node ${shimPath}`,
+            runAsync: true,
+          }),
+        catch: (e) => new DaytonaError({ message: "Failed to execute command", cause: e }),
+      });
+
+      logger.info("Command executing async", { threadId, data: { cmdId: command.cmdId } });
+
+      // 4. Stream logs with real-time callbacks
+      yield* Effect.tryPromise({
+        try: () =>
+          sandbox.process.getSessionCommandLogs(
+            sessionId,
+            command.cmdId!,
+            (stdout) => {
+              // Real-time stdout logging
+              logger.info(`[sandbox stdout] ${stdout}`, { threadId });
+
+              // Parse IPC messages
+              const lines = stdout.split("\n");
+              for (const line of lines) {
+                if (line.startsWith(IPC_PREFIX)) {
+                  const raw = line.slice(IPC_PREFIX.length);
+                  try {
+                    const msg = JSON.parse(raw);
+                    const decoded = Schema.decodeUnknownSync(WorkerMessage)(msg);
+
+                    if (decoded.type === "completed") {
+                      result = decoded.result;
+                    } else if (decoded.type === "failed") {
+                      error = decoded.error;
+                    } else if (decoded.type === "tool_call") {
+                      logger.tool(`Sandbox tool call: ${decoded.toolPath}`, decoded.args, { threadId });
+                      logs.push(`[tool_call] ${decoded.toolPath}`);
+                    }
+                  } catch (e) {
+                    logger.error("Failed to parse IPC", e as Error, { threadId, data: { line } });
+                  }
+                } else if (line.trim()) {
+                  logs.push(line);
+                }
+              }
+            },
+            (stderr) => {
+              // Real-time stderr logging
+              logger.error(`[sandbox stderr] ${stderr}`, new Error(stderr), { threadId });
+              logs.push(`[stderr] ${stderr}`);
+            },
+          ),
+        catch: (e) => new DaytonaError({ message: "Log streaming failed", cause: e }),
+      });
+
+      logger.info("Streaming execution completed", { threadId, data: { hasResult: !!result, hasError: !!error } });
+
+      return { result, error, logs };
+    } catch (err: any) {
+      logger.error("Streaming execution crashed", err, { threadId });
+      return { result: null, error: err.message, logs };
+    }
+  });
+
 export const makeDaytonaExecutor = (
   options: DaytonaExecutorOptions,
   threadId: string,
@@ -195,7 +306,7 @@ export const makeDaytonaExecutor = (
 
   return {
     execute: (code, _) =>
-      Effect.gen(async function* () {
+      Effect.gen(function* () {
         const image = options.image ?? "node:20-slim";
         const userId = threadId;
 
@@ -311,59 +422,68 @@ const tools = new Proxy({}, {
 })();
 `;
 
-          // 3. Run in Daytona
+          // 3. Run in Daytona (streaming or simple mode)
           logger.info("Executing code in sandbox", {
             threadId,
-            data: { sandboxId: sandbox.id },
-          });
-          const response = yield* Effect.tryPromise({
-            try: () => sandbox.codeInterpreter.run(shim),
-            catch: (e) =>
-              new DaytonaError({
-                message: "Daytona execution failed",
-                cause: e,
-              }),
+            data: { sandboxId: sandbox.id, debugMode: DEBUG_MODE },
           });
 
-          // 4. Parse results
-          const logs: string[] = [];
           let result: unknown = null;
           let error: string | undefined = undefined;
+          let logs: string[] = [];
 
-          const lines = response.stdout.split("\n");
-          for (const line of lines) {
-            if (line.startsWith(IPC_PREFIX)) {
-              const raw = line.slice(IPC_PREFIX.length);
-              try {
-                const msg = JSON.parse(raw);
-                const decoded = Schema.decodeUnknownSync(WorkerMessage)(msg);
+          if (DEBUG_MODE) {
+            // Streaming mode: real-time logs via callbacks
+            const streamingResult = yield* executeWithStreaming(sandbox, shim, threadId);
+            result = streamingResult.result;
+            error = streamingResult.error;
+            logs = streamingResult.logs || [];
+          } else {
+            // Simple mode: wait for completion, get all logs at end
+            const response = yield* Effect.tryPromise({
+              try: () => sandbox.process.codeRun(shim),
+              catch: (e) =>
+                new DaytonaError({
+                  message: "Daytona execution failed",
+                  cause: e,
+                }),
+            });
 
-                if (decoded.type === "completed") {
-                  result = decoded.result;
-                } else if (decoded.type === "failed") {
-                  error = decoded.error;
-                } else if (decoded.type === "tool_call") {
-                  logger.tool(
-                    `Sandbox tool call requested: ${decoded.toolPath}`,
-                    decoded.args,
-                    { threadId },
-                  );
-                  logs.push(`[tool_call] Requested ${decoded.toolPath}`);
+            const lines = response.result.split("\n");
+            for (const line of lines) {
+              if (line.startsWith(IPC_PREFIX)) {
+                const raw = line.slice(IPC_PREFIX.length);
+                try {
+                  const msg = JSON.parse(raw);
+                  const decoded = Schema.decodeUnknownSync(WorkerMessage)(msg);
+
+                  if (decoded.type === "completed") {
+                    result = decoded.result;
+                  } else if (decoded.type === "failed") {
+                    error = decoded.error;
+                  } else if (decoded.type === "tool_call") {
+                    logger.tool(
+                      `Sandbox tool call requested: ${decoded.toolPath}`,
+                      decoded.args,
+                      { threadId },
+                    );
+                    logs.push(`[tool_call] Requested ${decoded.toolPath}`);
+                  }
+                } catch (e) {
+                  logger.error("Failed to parse IPC message", e as Error, {
+                    threadId,
+                    data: { line },
+                  });
+                  logs.push(`[error] Failed to parse IPC: ${line}`);
                 }
-              } catch (e) {
-                logger.error("Failed to parse IPC message", e as Error, {
-                  threadId,
-                  data: { line },
-                });
-                logs.push(`[error] Failed to parse IPC: ${line}`);
+              } else if (line.trim()) {
+                logs.push(line);
               }
-            } else if (line.trim()) {
-              logs.push(line);
             }
-          }
 
-          if (response.exitCode !== 0 && !error) {
-            error = response.stderr || `Exit code ${response.exitCode}`;
+            if (response.exitCode !== 0 && !error) {
+              error = response.stderr || `Exit code ${response.exitCode}`;
+            }
           }
 
           return { result, error, logs };

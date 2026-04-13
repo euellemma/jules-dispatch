@@ -54,121 +54,11 @@ export const getChatIdForThread = internalQuery({
   }
 });
 
-export const getProviderConfig = internalQuery({
-  args: { telegramChatId: v.string() },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
-      .first();
-    return {
-      config: user?.providerConfig || null,
-      julesApiKey: user?.julesApiKey,
-      exaApiKey: user?.exaApiKey,
-    };
-  },
-});
-
 export const getAnyExistingUser = internalQuery({
   args: {},
   handler: async (ctx) => {
     const user = await ctx.db.query("users").first();
     return user ? { telegramChatId: user.telegramChatId } : null;
-  },
-});
-
-export const getProviderConfig = internalQuery({
-  args: { telegramChatId: v.string() },
-  handler: async (ctx, args) => {
-    let user = await ctx.db
-      .query("users")
-      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
-      .first();
-    
-    if (!user) return null;
-    return {
-      telegramChatId: user.telegramChatId,
-      providerConfig: user.providerConfig || null,
-      julesApiKey: user.julesApiKey,
-      exaApiKey: user.exaApiKey,
-    };
-  },
-});
-
-export const updateJulesApiKey = internalMutation({
-  args: { telegramChatId: v.string(), apiKey: v.string() },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
-      .first();
-    if (user) {
-      await ctx.db.patch(user._id, { julesApiKey: args.apiKey });
-    }
-  },
-});
-
-export const updateExaApiKey = internalMutation({
-  args: { telegramChatId: v.string(), apiKey: v.string() },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
-      .first();
-    if (user) {
-      await ctx.db.patch(user._id, { exaApiKey: args.apiKey });
-    }
-  },
-});
-
-export const updateProviderConfig = internalMutation({
-  args: {
-    telegramChatId: v.string(),
-    endpoint: v.string(),
-    model: v.string(),
-    apiKey: v.string(),
-    sdkType: v.union(
-      v.literal("openai"),
-      v.literal("anthropic"),
-      v.literal("google"),
-      v.literal("openai-compatible"),
-    ),
-  },
-  handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
-      .first();
-
-    const config = {
-      endpoint: args.endpoint,
-      model: args.model,
-      apiKey: args.apiKey,
-      sdkType: args.sdkType,
-    };
-
-    if (user) {
-      await ctx.db.patch(user._id, { providerConfig: config, consecutiveFailures: 0 });
-      
-      // Auto-recovery: If there are pending messages, trigger the queue
-      if (user.pendingMessageText) {
-        await ctx.scheduler.runAfter(0, internal.api.telegram.sendChatMessage, {
-          chatId: args.telegramChatId,
-          message: "🔄 <b>Settings Updated!</b> Resuming your last request...",
-        });
-        await ctx.scheduler.runAfter(0, internal.api.telegram.processMessageQueue, {
-          threadId: user.threadId,
-          telegramChatId: args.telegramChatId,
-        });
-      }
-    } else {
-      const threadId = await createThread(ctx, components.agent, { userId: args.telegramChatId });
-      await ctx.db.insert("users", {
-        telegramChatId: args.telegramChatId,
-        threadId,
-        providerConfig: config,
-      });
-    }
   },
 });
 
@@ -418,6 +308,74 @@ export const appendPendingMessage = internalMutation({
   },
 });
 
+/**
+ * Prepend message to pending queue (puts it first, before existing messages).
+ * Used for re-queueing failed messages so they get processed before new user messages.
+ */
+export const prependPendingMessage = internalMutation({
+  args: { threadId: v.string(), text: v.string() },
+  handler: async (ctx, { threadId, text }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .first();
+    if (!user) return;
+    const current = user.pendingMessageText || "";
+    const separator = current ? "\n" : "";
+    await ctx.db.patch(user._id, {
+      pendingMessageText: text + separator + current,
+    });
+  },
+});
+
+const QUEUE_LOCK_TTL_MS = 3 * 60 * 1000; // 3 minutes
+
+/**
+ * Atomically acquire the queue processing lock.
+ * Returns true if lock acquired, false if already locked (and not stale).
+ * Stale locks (>3 min old) are claimed automatically.
+ */
+export const acquireQueueLock = internalMutation({
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, { telegramChatId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", telegramChatId))
+      .first();
+    
+    if (!user) return false;
+    
+    const now = Date.now();
+    const lockedAt = user.queueLockedAt;
+    
+    // If locked and not stale, someone else is processing
+    if (lockedAt && (now - lockedAt) < QUEUE_LOCK_TTL_MS) {
+      return false;
+    }
+    
+    // Either not locked, or lock is stale - claim it
+    await ctx.db.patch(user._id, { queueLockedAt: now });
+    return true;
+  },
+});
+
+/**
+ * Release the queue processing lock.
+ */
+export const releaseQueueLock = internalMutation({
+  args: { telegramChatId: v.string() },
+  handler: async (ctx, { telegramChatId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", telegramChatId))
+      .first();
+    
+    if (user && user.queueLockedAt !== undefined) {
+      await ctx.db.patch(user._id, { queueLockedAt: undefined });
+    }
+  },
+});
+
 export const getPendingMessages = internalQuery({
   args: { telegramChatId: v.string() },
   handler: async (ctx, { telegramChatId }) => {
@@ -442,27 +400,105 @@ export const clearPendingMessages = internalMutation({
   }
 });
 
+/**
+ * Atomically pop all pending messages for a thread.
+ * Returns the messages and clears them in a single transaction.
+ */
+export const popPendingMessages = internalMutation({
+  args: { threadId: v.string() },
+  handler: async (ctx, { threadId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .first();
+    
+    if (!user || !user.pendingMessageText) {
+      return null;
+    }
+    
+    const messages = user.pendingMessageText;
+    
+    // Atomically clear the pending messages
+    await ctx.db.patch(user._id, { pendingMessageText: undefined });
+    
+    return messages;
+  }
+});
+
+/**
+ * Get the queue depth (number of pending messages) for a thread.
+ */
+export const getQueueDepth = internalQuery({
+  args: { threadId: v.string() },
+  handler: async (ctx, { threadId }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .first();
+    
+    if (!user || !user.pendingMessageText) {
+      return 0;
+    }
+    
+    // Count messages by splitting on newlines
+    const messages = user.pendingMessageText
+      .split("\n")
+      .filter(m => m.trim() !== "");
+    
+    return messages.length;
+  }
+});
+
+/**
+ * Drop oldest messages, keeping only the newest N messages.
+ * Used for queue capping when limit is reached.
+ */
+export const dropOldestMessages = internalMutation({
+  args: { threadId: v.string(), keep: v.number() },
+  handler: async (ctx, { threadId, keep }) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_threadId", q => q.eq("threadId", threadId))
+      .first();
+    
+    if (!user || !user.pendingMessageText) {
+      return { dropped: 0, remaining: 0 };
+    }
+    
+    const messages = user.pendingMessageText
+      .split("\n")
+      .filter(m => m.trim() !== "");
+    
+    if (messages.length <= keep) {
+      return { dropped: 0, remaining: messages.length };
+    }
+    
+    const dropped = messages.length - keep;
+    const remainingMessages = messages.slice(-keep);
+    
+    await ctx.db.patch(user._id, {
+      pendingMessageText: remainingMessages.join("\n")
+    });
+    
+    return { dropped, remaining: keep };
+  }
+});
+
+// DEPRECATED: isAgentRunning and setAgentRunning are no longer used
+// The queue is now self-draining and doesn't need a running flag
 export const setAgentRunning = internalMutation({
   args: { telegramChatId: v.string(), isRunning: v.boolean() },
   handler: async (ctx, { telegramChatId, isRunning }) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", telegramChatId))
-      .first();
-    if (user) {
-      await ctx.db.patch(user._id, { isAgentRunning: isRunning });
-    }
+    // No-op - kept for backward compatibility
+    console.log("[DEPRECATED] setAgentRunning called - no longer needed");
   }
 });
 
 export const isAgentRunning = internalQuery({
   args: { telegramChatId: v.string() },
   handler: async (ctx, args) => {
-    const user = await ctx.db
-      .query("users")
-      .withIndex("by_telegramChatId", q => q.eq("telegramChatId", args.telegramChatId))
-      .first();
-    return user?.isAgentRunning ?? false;
+    // Always return false - queue is self-draining
+    return false;
   }
 });
 
@@ -495,44 +531,4 @@ export const resetConsecutiveFailures = internalMutation({
   },
 });
 
-export const seedFromInitial = internalMutation({
-  args: {
-    telegramChatId: v.string(),
-    julesApiKey: v.string(),
-    exaApiKey: v.optional(v.string()),
-    llmEndpoint: v.string(),
-    llmModel: v.string(),
-    llmApiKey: v.string(),
-    llmSdkType: v.union(
-      v.literal("openai"),
-      v.literal("anthropic"),
-      v.literal("google"),
-      v.literal("openai-compatible"),
-    ),
-  },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("users")
-      .withIndex("by_telegramChatId", (q) => q.eq("telegramChatId", args.telegramChatId))
-      .first();
 
-    if (existing) {
-      return existing._id;
-    }
-
-    const threadId = await createThread(ctx, components.agent, { userId: args.telegramChatId });
-    await ctx.db.insert("users", {
-      telegramChatId: args.telegramChatId,
-      threadId,
-      julesApiKey: args.julesApiKey,
-      exaApiKey: args.exaApiKey,
-      providerConfig: {
-        endpoint: args.llmEndpoint,
-        model: args.llmModel,
-        apiKey: args.llmApiKey,
-        sdkType: args.llmSdkType,
-      },
-    });
-    return threadId;
-  },
-});

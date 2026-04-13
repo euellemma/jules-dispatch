@@ -7,7 +7,7 @@ import { julesAgent, resolveLanguageModel } from "../agent/instance";
 import { chunkHtml } from "./utils";
 import { withRetry, isNonRetriableError } from "../utils/retry";
 import { INITIAL_CONFIG, isConfigured } from "../config/initial";
-import { formatTelegramMessage, stripMdv2, chunkMessage } from "../utils/telegramFormat";
+import { formatTelegramMessage, stripMdv2, chunkMessage, escapeMdv2 } from "../utils/telegramFormat";
 
 const MAX_BACKOFF_DELAY_MS = 60_000;
 const BASE_RETRY_DELAY_MS = 5_000;
@@ -211,47 +211,48 @@ export async function processTelegramUpdate(
       text.startsWith("/connect") || text.startsWith("/start");
 
     try {
-      const existingUser = await ctx.runQuery(
-        internal.users.db.getProviderConfig,
-        { telegramChatId: chatId },
+      // Check singleton bot config (saves DB read)
+      const botConfig = await ctx.runQuery(
+        internal.config.botConfig.getOrInitConfig,
+        {},
       );
 
       let justSeeded = false;
 
-      if (!existingUser.config && !existingUser.julesApiKey) {
-        if (isConfigured(INITIAL_CONFIG)) {
-          await ctx.runMutation(internal.users.db.seedFromInitial, {
-            telegramChatId: chatId,
-            julesApiKey: INITIAL_CONFIG.julesApiKey,
-            exaApiKey: INITIAL_CONFIG.exaApiKey,
-            llmEndpoint: INITIAL_CONFIG.llmEndpoint,
-            llmModel: INITIAL_CONFIG.llmModel,
-            llmApiKey: INITIAL_CONFIG.llmApiKey,
-            llmSdkType: INITIAL_CONFIG.llmSdkType,
-          });
+      // Check if bot config is empty and auto-initialize from env if available
+      if (!botConfig && isConfigured(INITIAL_CONFIG)) {
+        await ctx.runMutation(internal.config.botConfig.initFromEnv, {});
+        justSeeded = true;
+      }
 
-          justSeeded = true;
-        } else if (!isConnectCommand) {
+      // Re-fetch after potential init
+      const finalConfig = botConfig || await ctx.runQuery(
+        internal.config.botConfig.getConfig,
+        {},
+      );
+
+      if (!finalConfig || (!finalConfig.providerConfig && !finalConfig.julesApiKey)) {
+        if (!isConnectCommand) {
           await sendTelegramMessage(
             chatId,
-            "👋 *Welcome to Jules Dispatch!*\n\nI need an AI provider to function. Please use /connect to set up your API key (OpenCode, Gemini, Anthropic, etc.) before we start chatting.",
+            "👋 *Welcome!*\n\nPlease use /connect to set your API keys in the settings page.",
           );
           return { success: true, handled: true };
         }
       }
 
       if (!isConnectCommand && !justSeeded) {
-        if (!existingUser.config) {
+        if (!finalConfig?.providerConfig) {
           await sendTelegramMessage(
             chatId,
-            "👋 *Welcome to Jules Dispatch!*\n\nI need an AI provider to function. Please use /connect to set up your API key (OpenCode, Gemini, Anthropic, etc.) before we start chatting.",
+            "👋 *Welcome!*\n\nPlease use /connect to configure your LLM provider in the settings page.",
           );
           return { success: true, handled: true };
         }
-        if (!existingUser.julesApiKey) {
+        if (!finalConfig?.julesApiKey) {
           await sendTelegramMessage(
             chatId,
-            "🔑 *Jules API Key Required*\n\nI need a Jules API key to manage your coding sessions. Please use /connect to set it up.",
+            "🔑 *Jules API Key Required*\n\nI need a Jules API key to manage your coding sessions. Please use /connect to set it up in the settings page.",
           );
           return { success: true, handled: true };
         }
@@ -320,7 +321,7 @@ async function handleTelegramCommand(
     case "/start":
       await sendTelegramMessage(
         chatId,
-        "👋 *Welcome to Jules Dispatch!*\n\nI am your AI agent assistant. I can help you manage code sessions, search the web, and more.\n\nType /connect to set up your AI providers.",
+        "👋 *Welcome!*\n\nI'm your coding assistant. Use /connect to set your API keys and let's get started.",
       );
       return true;
 
@@ -328,7 +329,7 @@ async function handleTelegramCommand(
       await sendTelegramMessage(
         chatId,
         "📖 *Jules Dispatch Help*\n\n" +
-          "/connect - Configure your AI provider and API key\n" +
+          "/connect - Set your API keys\n" +
           "/new - Start fresh conversation (keeps memory)\n" +
           "/reset - Clear conversation only (keeps memory)\n" +
           "/compact - Summarize older messages to save context\n" +
@@ -347,7 +348,7 @@ async function handleTelegramCommand(
       const settingsUrl = `${siteUrl}/settings?token=${token}`;
       await sendTelegramMessage(
         chatId,
-        `🔗 *Connect your AI provider*\n\nClick the link below to configure your LLM provider (OpenCode, Google AI Studio, Anthropic, OpenAI, etc.):\n\n${settingsUrl}\n\n_This link expires in 24 hours._`,
+        `🔗 *Set API keys*\n\nUse this link to set your API keys:\n\n${settingsUrl}\n\n_Expires in 24 hours._`,
       );
       return true;
     }
@@ -458,12 +459,36 @@ async function processTelegramCallbackQuery(ctx: any, query: any) {
   });
 }
 
+const QUEUE_CAP = 100;
+const QUEUE_CAP_WARNING_THRESHOLD = 99;
+
 async function queueMessage(
   ctx: any,
   telegramChatId: string,
   text: string,
   threadId: string,
 ): Promise<void> {
+  // Check queue depth before appending
+  const queueDepth = await ctx.runQuery(internal.users.db.getQueueDepth, {
+    threadId,
+  });
+  
+  // If queue is at or exceeds cap, drop oldest messages
+  if (queueDepth >= QUEUE_CAP) {
+    const result = await ctx.runMutation(internal.users.db.dropOldestMessages, {
+      threadId,
+      keep: QUEUE_CAP_WARNING_THRESHOLD,
+    });
+    
+    // Notify user that messages were dropped
+    await ctx.scheduler.runAfter(0, internal.api.telegram.sendChatMessage, {
+      chatId: telegramChatId,
+      message: "⚠️ Queue limit reached (100 messages). Oldest messages were dropped.",
+    });
+    
+    console.log(`[queueMessage] Queue cap reached for thread ${threadId}, dropped ${result.dropped} messages`);
+  }
+
   await ctx.runMutation(internal.users.db.appendPendingMessage, {
     threadId,
     text,
@@ -471,19 +496,14 @@ async function queueMessage(
 
   // Reset backoff on fresh user input — user is actively engaging
   await ctx.runMutation(internal.users.db.resetConsecutiveFailures, {
-    threadId,
+    telegramChatId,
   });
 
-  const isRunning = await ctx.runQuery(internal.users.db.isAgentRunning, {
+  // Always schedule queue processing - self-draining model
+  await ctx.scheduler.runAfter(0, internal.api.telegram.processMessageQueue, {
     threadId,
+    telegramChatId,
   });
-
-  if (!isRunning) {
-    await ctx.scheduler.runAfter(0, internal.api.telegram.processMessageQueue, {
-      threadId,
-      telegramChatId,
-    });
-  }
 }
 
 export const processMessageQueue = internalAction({
@@ -495,124 +515,169 @@ export const processMessageQueue = internalAction({
     ctx: any,
     { threadId, telegramChatId }: { threadId: string; telegramChatId: string },
   ) => {
-    const isRunning = await ctx.runQuery(internal.users.db.isAgentRunning, {
-      threadId,
-    });
-    if (isRunning) {
-      console.log("[processMessageQueue] Agent already running, queuing");
-      return;
-    }
-
-    const pendingText = await ctx.runQuery(
-      internal.users.db.getPendingMessages,
-      { threadId },
+    // Try to acquire lock - exit if another worker is processing (or lock is fresh)
+    const acquired = await ctx.runMutation(
+      internal.users.db.acquireQueueLock,
+      { telegramChatId },
     );
-    if (!pendingText || pendingText.trim() === "") {
+    if (!acquired) {
+      console.log(`[processMessageQueue] Lock already held for ${telegramChatId}, exiting`);
       return;
     }
-
-    await ctx.runMutation(internal.users.db.setAgentRunning, {
-      threadId,
-      isRunning: true,
-    });
-
-    // Start typing heartbeat to keep indicator alive during long operations
-    await ctx.runAction(internal.telegram.typingHeartbeat.heartbeat, {
-      threadId,
-    });
 
     try {
-      await sendTelegramChatAction(telegramChatId, "typing");
-
-      const messages = pendingText
-        .split("\n")
-        .filter((m: string) => m.trim() !== "");
-      
-      // Guard against empty messages after filtering
-      if (messages.length === 0) {
-        await ctx.runMutation(internal.users.db.clearPendingMessages, {
-          threadId,
-        });
-        return;
-      }
-      
-      const batchPrompt =
-        messages.length === 1
-          ? messages[0]
-          : `Queued:\n ` +
-            messages
-              .map((m: string, i: number) => `Message ${i + 1}: ${m}`)
-              .join("\n");
-
-      const model = await resolveLanguageModel(ctx, threadId, telegramChatId);
-      
-      logger.info(`[processMessageQueue] Starting LLM generation`, {
-        threadId,
-        "ai.model": typeof model === "string" ? model : (model as any)?.model,
-      });
-
-      const result = await julesAgent.generateText(
-        ctx,
-        { threadId, userId: telegramChatId },
-        { model, prompt: batchPrompt },
-      );
-
-      // Send the agent's response directly to Telegram
-      if (result.text && result.text.trim()) {
-        await ctx.runAction(internal.api.telegram.sendChatMessage, {
-          chatId: telegramChatId,
-          message: result.text,
-        });
-      }
-
-      await ctx.runMutation(internal.users.db.clearPendingMessages, {
-        threadId,
-      });
-      await ctx.runMutation(internal.users.db.resetConsecutiveFailures, {
-        threadId,
-      });
-      await sendTelegramChatAction(telegramChatId, "cancel");
-    } catch (error: any) {
-      logger.error("[processMessageQueue] Error:", error);
-      await sendTelegramChatAction(telegramChatId, "cancel");
-      const errorMessage = error?.message || String(error);
-
-      if (isNonRetriableError(error)) {
-        await sendTelegramMessage(
-          telegramChatId,
-          `❌ *Error:* ${errorMessage}\n\n_Your message is saved. Once you fix the issue (e.g. via /connect), send any message to resume._`,
-        );
-      } else {
-        const failures = await ctx.runMutation(
-          internal.users.db.incrementConsecutiveFailures,
-          { threadId },
-        );
-        const delayMs = getBackoffDelayMs(failures);
-
-        let tip =
-          "_You can change your AI provider or model by using /connect. Your message is saved and will resume once you update your settings._";
-        if (errorMessage.includes("Jules API key")) {
-          tip = "*Tip:* Your Jules API key is missing or invalid. Use /connect to set it up.";
-        }
-
-        await sendTelegramMessage(
-          telegramChatId,
-          `❌ *Error:* ${errorMessage}\n\n${tip}`,
-        );
-
-        await ctx.scheduler.runAfter(delayMs, internal.api.telegram.processMessageQueue, {
-          threadId,
-          telegramChatId,
-        });
-      }
+      await processWithLock(ctx, threadId, telegramChatId);
     } finally {
-      await ctx.runMutation(internal.users.db.setAgentRunning, {
-        threadId,
-        isRunning: false,
-      });
+      // Always release lock on exit
+      await ctx.runMutation(internal.users.db.releaseQueueLock, { telegramChatId });
     }
   },
 });
+
+async function processWithLock(
+  ctx: any,
+  threadId: string,
+  telegramChatId: string,
+): Promise<void> {
+  // Atomic pop: get and clear messages in one operation
+  const pendingText = await ctx.runMutation(
+    internal.users.db.popPendingMessages,
+    { threadId },
+  );
+  
+  // No messages to process
+  if (!pendingText || pendingText.trim() === "") {
+    return;
+  }
+
+  // Start initial typing indicator (heartbeat removed - not needed)
+  try {
+    await sendTelegramChatAction(telegramChatId, "typing");
+  } catch (err) {
+    console.log("[processMessageQueue] Typing indicator failed (non-critical):", err);
+  }
+
+  try {
+    const messages = pendingText
+      .split("\n")
+      .filter((m: string) => m.trim() !== "");
+
+    // Guard against empty messages after filtering
+    if (messages.length === 0) {
+      // Messages already cleared by popPendingMessages, just check for more
+      await checkAndContinueDraining(ctx, threadId, telegramChatId);
+      return;
+    }
+
+    const batchPrompt =
+      messages.length === 1
+        ? messages[0]
+        : `Queued:\n ` +
+          messages
+            .map((m: string, i: number) => `Message ${i + 1}: ${m}`)
+            .join("\n");
+
+    // Guard against empty prompt - can happen with new/empty threads
+    if (!batchPrompt || batchPrompt.trim() === "") {
+      logger.warn(`[processMessageQueue] Empty prompt after filtering, skipping generation`, { threadId });
+      await checkAndContinueDraining(ctx, threadId, telegramChatId);
+      return;
+    }
+
+    const model = await resolveLanguageModel(ctx, threadId, telegramChatId);
+
+    logger.info(`[processMessageQueue] Starting LLM generation`, {
+      threadId,
+      "ai.model": typeof model === "string" ? model : (model as any)?.model,
+    });
+
+    const result = await julesAgent.generateText(
+      ctx,
+      { threadId, userId: telegramChatId },
+      { model, prompt: batchPrompt },
+    );
+
+    // Send the agent's response directly to Telegram
+    if (result.text && result.text.trim()) {
+      await ctx.runAction(internal.api.telegram.sendChatMessage, {
+        chatId: telegramChatId,
+        message: result.text,
+      });
+    }
+
+    await ctx.runMutation(internal.users.db.resetConsecutiveFailures, {
+      telegramChatId,
+    });
+  } catch (error: any) {
+    logger.error("[processMessageQueue] Error:", error);
+    const errorMessage = error?.message || String(error);
+
+    // Re-queue the failed messages so they can be retried
+    // Prepend (not append) so old messages are processed before any new ones
+    await ctx.runMutation(internal.users.db.prependPendingMessage, {
+      threadId,
+      text: pendingText,
+    });
+
+    if (isNonRetriableError(error)) {
+      await sendTelegramMessage(
+        telegramChatId,
+        `❌ *Error:* ${escapeMdv2(errorMessage)}\n\n_Your message is saved\. Once you fix the issue \(e\.g\. via /connect\), send any message to resume\._`,
+      );
+    } else {
+      const failures = await ctx.runMutation(
+        internal.users.db.incrementConsecutiveFailures,
+        { telegramChatId },
+      );
+      const delayMs = getBackoffDelayMs(failures);
+
+      let tip =
+        "_Use /connect to set your API keys\. Your message is saved and will resume once fixed\._";
+      if (errorMessage.includes("Jules API key")) {
+        tip = "*Tip:* Your Jules API key is missing or invalid\. Use /connect to set it up\.";
+      }
+
+      await sendTelegramMessage(
+        telegramChatId,
+        `❌ *Error:* ${escapeMdv2(errorMessage)}\n\n${tip}`,
+      );
+
+      // Schedule retry with backoff
+      await ctx.scheduler.runAfter(delayMs, internal.api.telegram.processMessageQueue, {
+        threadId,
+        telegramChatId,
+      });
+    }
+
+    // Don't continue draining on error - let the retry handle it
+    return;
+  }
+
+  // Self-draining: check if more messages arrived and continue processing
+  await checkAndContinueDraining(ctx, threadId, telegramChatId);
+}
+
+/**
+ * Check if more messages exist and continue draining the queue.
+ * This enables self-draining behavior without needing a running flag.
+ */
+async function checkAndContinueDraining(
+  ctx: any,
+  threadId: string,
+  telegramChatId: string,
+): Promise<void> {
+  const queueDepth = await ctx.runQuery(internal.users.db.getQueueDepth, {
+    threadId,
+  });
+  
+  if (queueDepth > 0) {
+    console.log(`[processMessageQueue] More messages pending (${queueDepth}), continuing drain`);
+    await ctx.scheduler.runAfter(0, internal.api.telegram.processMessageQueue, {
+      threadId,
+      telegramChatId,
+    });
+  }
+}
 
 export const sendChatMessage = internalAction({
   args: { 

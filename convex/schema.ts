@@ -29,25 +29,11 @@ export default defineSchema({
     lastSearchingSentAt: v.optional(v.number()), // For debouncing "Searching..." messages
     isAgentRunning: v.optional(v.boolean()), // Is LLM currently processing for this user
     pendingMessageText: v.optional(v.string()), // Queued messages (newline separated)
-    julesApiKey: v.optional(v.string()),
-    exaApiKey: v.optional(v.string()),
     updateNotificationsEnabled: v.optional(v.boolean()), // User opt-in for update notifications
     lastNotifiedVersion: v.optional(v.string()), // Last version user was notified about
     memoryNudgeCount: v.optional(v.number()), // Turns since last memory nudge (persisted)
     consecutiveFailures: v.optional(v.number()), // For exponential backoff on LLM errors
-    providerConfig: v.optional(
-      v.object({
-        endpoint: v.string(),
-        model: v.string(),
-        apiKey: v.string(),
-        sdkType: v.union(
-          v.literal("openai"),
-          v.literal("anthropic"),
-          v.literal("google"),
-          v.literal("openai-compatible"),
-        ),
-      }),
-    ),
+    queueLockedAt: v.optional(v.number()), // Timestamp when queue processing started (3min TTL)
   })
     .index("by_telegramChatId", ["telegramChatId"])
     .index("by_threadId", ["threadId"]),
@@ -184,4 +170,24 @@ export default defineSchema({
     durationMs: v.number(),
     status: v.union(v.literal("success"), v.literal("error")),
   }).index("by_timestamp", ["timestamp"]),
+
+  // Singleton bot configuration - one row only
+  bot_config: defineTable({
+    julesApiKey: v.optional(v.string()),
+    exaApiKey: v.optional(v.string()),
+    providerConfig: v.optional(
+      v.object({
+        endpoint: v.string(),
+        model: v.string(),
+        apiKey: v.string(),
+        sdkType: v.union(
+          v.literal("openai"),
+          v.literal("anthropic"),
+          v.literal("google"),
+          v.literal("openai-compatible"),
+        ),
+      }),
+    ),
+    updatedAt: v.number(),
+  }),
 });

@@ -61,7 +61,7 @@ export const pollJulesActivities = internalAction({
       const telegramChatId = await ctx.runQuery(internal.users.db.getChatIdForThread, {
         threadId: sessions[0]!.threadId
       });
-      jules = await getJulesClient(ctx, telegramChatId);
+      jules = await getJulesClient(ctx);
       const allSessions = await jules.sessions({}).all();
       sessionMap = new Map(
         allSessions.map((s: JulesApiSession) => [s.id, s]),

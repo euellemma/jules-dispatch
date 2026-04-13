@@ -33,26 +33,20 @@ const stripReserved = (obj: any): any => {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function resolveLanguageModel(ctx: any, threadId: string, userId: string): Promise<LanguageModel> {
-  const user = await ctx.runQuery(
+  // Get from singleton bot config (saves 1 DB read vs per-user lookup)
+  const config = await ctx.runQuery(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (internal as any).users.db.getProviderConfig,
-    { telegramChatId: userId }
-  ) as { telegramChatId: string; providerConfig: ProviderConfig | null; julesApiKey?: string; exaApiKey?: string } | null;
+    (internal as any).config.botConfig.getConfig,
+    {}
+  ) as { providerConfig: ProviderConfig | null } | null;
 
-  if (!user) {
+  if (!config || !config.providerConfig) {
     throw new Error(
-      "User not found. Please send a message first to initialize your account."
+      "LLM provider not configured. Please configure it in the /settings page."
     );
   }
 
-  if (!user.providerConfig) {
-    throw new Error(
-      "AI provider not configured. Use /connect to set up your API key."
-    );
-  }
-
-  const { endpoint, model, apiKey, sdkType } = user.providerConfig;
-  const userId = user.telegramChatId;
+  const { endpoint, model, apiKey, sdkType } = config.providerConfig;
 
   let baseModel: LanguageModel;
   if (sdkType === "anthropic") {

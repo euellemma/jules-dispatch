@@ -10,7 +10,8 @@ export const execute_code = createTool({
   description: 
     "Execute TypeScript code in a secure, remote Daytona sandbox. " +
     "Use this for complex logic, data processing, or to call connected tools via the 'tools' proxy. " +
-    "Example: return await tools.github.user.getAuthenticated();",
+    "The sandbox has a 'tools' proxy for connected integrations. Always return values or promises: 'return await tools.github.user.getAuthenticated()'. " +
+    "Discover available tools: 'return await tools.discover({query: 'intent'})'",
   inputSchema: z.object({
     code: z.string().describe("The TypeScript code to execute. Must return a value or a promise."),
   }),

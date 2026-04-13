@@ -115,7 +115,7 @@ export const backgroundMemoryReview = internalAction({
   },
   handler: async (ctx, args) => {
     try {
-      const model = await resolveLanguageModel(ctx, args.threadId);
+      const model = await resolveLanguageModel(ctx, args.threadId, args.telegramChatId);
 
       const msgResult = await ctx.runQuery(
         (components as any).agent.messages.listMessagesByThreadId,

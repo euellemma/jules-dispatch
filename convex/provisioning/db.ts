@@ -1,7 +1,7 @@
-import { query, mutation } from "../_generated/server";
+import { internalQuery, internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 
-export const getBotsByOwner = query({
+export const getBotsByOwner = internalQuery({
   args: { ownerId: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
@@ -11,7 +11,7 @@ export const getBotsByOwner = query({
   },
 });
 
-export const getBotsByStatus = query({
+export const getBotsByStatus = internalQuery({
   args: { statuses: v.array(v.string()) },
   handler: async (ctx, args) => {
     const results = [];
@@ -26,7 +26,7 @@ export const getBotsByStatus = query({
   },
 });
 
-export const getBotByRepo = query({
+export const getBotByRepo = internalQuery({
   args: { githubRepo: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
@@ -36,7 +36,7 @@ export const getBotByRepo = query({
   },
 });
 
-export const createBot = mutation({
+export const createBot = internalMutation({
   args: {
     ownerId: v.string(),
     name: v.string(),
@@ -56,7 +56,7 @@ export const createBot = mutation({
   },
 });
 
-export const updateBot = mutation({
+export const updateBot = internalMutation({
   args: {
     id: v.id("provisionedBots"),
     patches: v.any(),
@@ -69,7 +69,7 @@ export const updateBot = mutation({
   },
 });
 
-export const deleteBot = mutation({
+export const deleteBot = internalMutation({
   args: { id: v.id("provisionedBots") },
   handler: async (ctx, args) => {
     await ctx.db.delete(args.id);
