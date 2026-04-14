@@ -401,7 +401,16 @@ async function invokeMcpTool(
 
   if (sourceData.headers) {
     for (const [name, value] of Object.entries(sourceData.headers)) {
-      headers[name] = value;
+      if (typeof value === "string") {
+        headers[name] = value;
+      } else if (typeof value === "object" && value !== null && (("type" in value && value.type === "secret") || "secretId" in value)) {
+        const secretId = (value as any).secretId;
+        const prefix = (value as any).prefix;
+        const secret = await resolveSecret(ctx, userId, secretId);
+        if (secret) {
+          headers[name] = prefix ? `${prefix}${secret}` : secret;
+        }
+      }
     }
   }
 
@@ -572,6 +581,21 @@ async function invokeGoogleDiscoveryTool(
   url.search = queryParams.toString();
 
   const headers: Record<string, string> = {};
+
+  if (sourceData.headers) {
+    for (const [name, value] of Object.entries(sourceData.headers)) {
+      if (typeof value === "string") {
+        headers[name] = value;
+      } else if (typeof value === "object" && value !== null && (("type" in value && value.type === "secret") || "secretId" in value)) {
+        const secretId = (value as any).secretId;
+        const prefix = (value as any).prefix;
+        const secret = await resolveSecret(ctx, userId, secretId);
+        if (secret) {
+          headers[name] = prefix ? `${prefix}${secret}` : secret;
+        }
+      }
+    }
+  }
 
   if (sourceData.auth.kind === "apiKey") {
     const apiKey = await resolveSecret(

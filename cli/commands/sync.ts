@@ -2,8 +2,9 @@ import * as p from "@clack/prompts";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import * as crypto from "crypto";
+import crypto from "crypto";
 import Database from "better-sqlite3";
+import { Entry } from "@napi-rs/keyring";
 import { readHomeConfig, parseDeployKey } from "../config.js";
 import { c as colors } from "../ui.js";
 import { cliLogger } from "../utils/logger.js";
@@ -110,6 +111,76 @@ function collectNamespaces(entries: { namespace: string }[]): string[] {
   return [...seen];
 }
 
+function collectSecretRefsFromEntries(entries: { namespace: string; key: string; value: string }[]): SecretRef[] {
+  const found = new Map<string, SecretRef>();
+  
+  for (const entry of entries) {
+    if (!entry.namespace.endsWith(".bindings")) continue;
+    
+    try {
+      const data = JSON.parse(entry.value);
+      const sourceData = data.sourceData;
+      if (!sourceData) continue;
+
+      const scanHeaders = (headers: any) => {
+        if (!headers) return;
+        for (const [name, value] of Object.entries(headers)) {
+          if (typeof value === "object" && value !== null) {
+            const v = value as any;
+            const secretId = v.secretId;
+            if (secretId) {
+              if (!found.has(secretId)) {
+                found.set(secretId, { id: secretId, name: secretId, provider: "auto", scopeId: "" });
+              }
+            }
+          }
+        }
+      };
+
+      // OpenAPI / GraphQL headers
+      scanHeaders(sourceData.headers);
+
+      // MCP auth
+      if (sourceData.auth) {
+        if (sourceData.auth.kind === "header" && sourceData.auth.secretId) {
+          const sid = sourceData.auth.secretId;
+          if (!found.has(sid)) found.set(sid, { id: sid, name: sid, provider: "auto", scopeId: "" });
+        } else if (sourceData.auth.kind === "oauth2") {
+          if (sourceData.auth.accessTokenSecretId) {
+            const sid = sourceData.auth.accessTokenSecretId;
+            if (!found.has(sid)) found.set(sid, { id: sid, name: sid, provider: "auto", scopeId: "" });
+          }
+          if (sourceData.auth.refreshTokenSecretId) {
+            const sid = sourceData.auth.refreshTokenSecretId;
+            if (!found.has(sid)) found.set(sid, { id: sid, name: sid, provider: "auto", scopeId: "" });
+          }
+        }
+      }
+
+      // Google Discovery auth
+      if (sourceData.auth && sourceData.auth.kind === "apiKey" && sourceData.auth.apiKeySecretId) {
+        const sid = sourceData.auth.apiKeySecretId;
+        if (!found.has(sid)) found.set(sid, { id: sid, name: sid, provider: "auto", scopeId: "" });
+      }
+
+    } catch (e) {
+      // Ignore parse errors
+    }
+  }
+
+  return [...found.values()];
+}
+
+function tryGetKeychainValue(scopeId: string, secretId: string): string | null {
+  try {
+    const serviceName = `executor/${scopeId}`;
+    const entry = new Entry(serviceName, secretId);
+    return entry.getPassword();
+  } catch (err) {
+    return null;
+  }
+}
+
 function getConvexSiteUrl(config: ReturnType<typeof readHomeConfig>): string {
   if (!config?.installPath) return "";
   const envLocalPath = path.join(config.installPath, ".env.local");
@@ -159,7 +230,7 @@ export async function runSyncCommand() {
     return;
   }
 
-  const scopes = detectScopes(db);
+  const scopes = detectScopes(db).sort((a, b) => b.toolCount - a.toolCount);
   if (scopes.length === 0) {
     p.log.error(colors.red("No executor scopes found in the database."));
     p.log.info(colors.dim("Make sure the Executor has been used to configure tools in this project directory."));
@@ -192,7 +263,16 @@ export async function runSyncCommand() {
 
   const entries = readScopeEntries(db, selectedScope.scopePath);
   const namespaces = collectNamespaces(entries);
-  const secretRefs = readSecretRefs(db, selectedScope.scopePath);
+  const secretRefsFromStorage = readSecretRefs(db, selectedScope.scopePath);
+  const secretRefsFromBindings = collectSecretRefsFromEntries(entries);
+
+  // Combine unique secret refs
+  const secretRefsMap = new Map<string, SecretRef>();
+  for (const ref of secretRefsFromStorage) secretRefsMap.set(ref.id, ref);
+  for (const ref of secretRefsFromBindings) {
+    if (!secretRefsMap.has(ref.id)) secretRefsMap.set(ref.id, ref);
+  }
+  const secretRefs = [...secretRefsMap.values()];
 
   // Step 3: Resolve secrets
   const secretValues: SecretValue[] = [];
@@ -213,16 +293,22 @@ export async function runSyncCommand() {
         p.log.warn(`    ${colors.yellow("\u26A0 Not found in auth.json")}`);
       }
 
-      if (ref.provider !== "file" || !authJsonValues?.[ref.id]) {
-        const secretInput = await p.text({ message: `Enter value for "${ref.name}" (${ref.provider}):`, placeholder: "Leave empty to skip" });
-        if (p.isCancel(secretInput)) { db.close(); return; }
-        const trimmed = (secretInput as string).trim();
-        if (trimmed) {
-          secretValues.push({ secretId: ref.id, value: trimmed, name: ref.name });
-          p.log.info(`    ${colors.green("\u2713 Saved")}`);
-        } else {
-          p.log.warn(`    ${colors.yellow("\u26A0 Skipped \u2014 tool calls requiring this secret will fail")}`);
-        }
+      // Try Keychain for non-file providers or if not found in auth.json
+      const keychainValue = tryGetKeychainValue(selectedScope.scopeId, ref.id);
+      if (keychainValue) {
+        p.log.info(`    ${colors.green("\u2713 Found in OS Keychain")}`);
+        secretValues.push({ secretId: ref.id, value: keychainValue, name: ref.name });
+        continue;
+      }
+
+      const secretInput = await p.text({ message: `Enter value for "${ref.name}" (${ref.provider}):`, placeholder: "Leave empty to skip" });
+      if (p.isCancel(secretInput)) { db.close(); return; }
+      const trimmed = (secretInput as string).trim();
+      if (trimmed) {
+        secretValues.push({ secretId: ref.id, value: trimmed, name: ref.name });
+        p.log.info(`    ${colors.green("\u2713 Saved")}`);
+      } else {
+        p.log.warn(`    ${colors.yellow("\u26A0 Skipped \u2014 tool calls requiring this secret will fail")}`);
       }
     }
   }
