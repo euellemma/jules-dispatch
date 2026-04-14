@@ -14,3 +14,10 @@
 - I introduced a `stdoutBuffer` to `convex/executor/daytona.ts` to accumulate chunks.
 - It loops to process lines safely only when a `\n` newline boundary is encountered.
 - This guarantees `JSON.parse` only runs on a fully formed JSON line, eliminating the `Unterminated string in JSON` error!
+
+## Fix Applied: Resilient Secret Header Resolution
+- I identified that the `config.headers` stored in the database for synced OpenAPI tools was missing the `type: "secret"` property (e.g., `{"Authorization": {"secretId": "github-token", "prefix": "Bearer "}}`).
+- The previous implementation strictly required `value.type === "secret"`, which caused it to skip injecting the `Authorization` header entirely.
+- This explains why GitHub was returning unauthenticated rate limit errors!
+- I updated `resolveHeaders` and `invokeGraphQlTool` in `convex/executor/ipc.ts` to check for the presence of a `secretId` property as a fallback.
+- Now the `Authorization` header will be correctly resolved from the `executor_secrets` table and sent with the API request.

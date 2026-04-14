@@ -242,10 +242,12 @@ async function resolveHeaders(
   for (const [name, value] of Object.entries(configHeaders)) {
     if (typeof value === "string") {
       headers[name] = value;
-    } else if (value.type === "secret") {
-      const secret = await resolveSecret(ctx, userId, value.secretId);
+    } else if (typeof value === "object" && value !== null && (("type" in value && value.type === "secret") || "secretId" in value)) {
+      const secretId = (value as any).secretId;
+      const prefix = (value as any).prefix;
+      const secret = await resolveSecret(ctx, userId, secretId);
       if (secret) {
-        headers[name] = value.prefix ? `${value.prefix}${secret}` : secret;
+        headers[name] = prefix ? `${prefix}${secret}` : secret;
       }
     }
   }
@@ -474,10 +476,12 @@ async function invokeGraphQlTool(
     for (const [name, value] of Object.entries(sourceData.headers)) {
       if (typeof value === "string") {
         headers[name] = value;
-      } else if (value.type === "secret") {
-        const secret = await resolveSecret(ctx, userId, value.secretId);
+      } else if (typeof value === "object" && value !== null && (("type" in value && value.type === "secret") || "secretId" in value)) {
+        const secretId = (value as any).secretId;
+        const prefix = (value as any).prefix;
+        const secret = await resolveSecret(ctx, userId, secretId);
         if (secret) {
-          headers[name] = value.prefix ? `${value.prefix}${secret}` : secret;
+          headers[name] = prefix ? `${prefix}${secret}` : secret;
         }
       }
     }
