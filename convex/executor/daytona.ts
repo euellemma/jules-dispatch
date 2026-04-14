@@ -241,6 +241,8 @@ const executeWithStreaming = (
 
       logger.info("Command executing async", { threadId, data: { cmdId: command.cmdId } });
 
+      let stdoutBuffer = "";
+
       // 4. Stream logs with real-time callbacks
       yield* Effect.tryPromise({
         try: () =>
@@ -251,9 +253,14 @@ const executeWithStreaming = (
               // Real-time stdout logging
               logger.info(`[sandbox stdout] ${stdout}`, { threadId });
 
-              // Parse IPC messages
-              const lines = stdout.split("\n");
-              for (const line of lines) {
+              stdoutBuffer += stdout;
+
+              // Parse IPC messages when we hit a newline boundary
+              let newlineIndex;
+              while ((newlineIndex = stdoutBuffer.indexOf("\n")) !== -1) {
+                const line = stdoutBuffer.slice(0, newlineIndex).trim();
+                stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+
                 if (line.startsWith(IPC_PREFIX)) {
                   const raw = line.slice(IPC_PREFIX.length);
                   try {
@@ -271,14 +278,14 @@ const executeWithStreaming = (
                   } catch (e) {
                     logger.error("Failed to parse IPC", e as Error, { threadId, data: { line } });
                   }
-                } else if (line.trim()) {
+                } else if (line) {
                   logs.push(line);
                 }
               }
             },
             (stderr) => {
-              // Real-time stderr logging
-              logger.error(`[sandbox stderr] ${stderr}`, new Error(stderr), { threadId });
+              // Real-time stderr logging (no Error wrapper to avoid noisy stack traces per line)
+              logger.warn(`[sandbox stderr] ${stderr}`, { threadId });
               logs.push(`[stderr] ${stderr}`);
             },
           ),
@@ -320,11 +327,12 @@ export const makeDaytonaExecutor = (
         );
 
         // 2. Resolve Secrets for this user
-        // We look for everything in the 'secrets' namespace
+        // Sync stores all secrets under "global_user"
+        const globalUserId = "global_user";
         const secretEntries = yield* Effect.tryPromise({
           try: () =>
             ctx.runQuery(internal.executor.db.listKv, {
-              userId,
+              userId: globalUserId,
               namespace: "secrets",
             }),
           catch: () => [],
@@ -338,7 +346,7 @@ export const makeDaytonaExecutor = (
             const secretValue = yield* Effect.tryPromise({
               try: () =>
                 ctx.runQuery(internal.executor.db.getSecret, {
-                  userId,
+                  userId: globalUserId,
                   secretId: ref.id,
                 }),
               catch: () => null,
@@ -377,44 +385,53 @@ export const makeDaytonaExecutor = (
 const IPC_PREFIX = "@@executor-ipc@@";
 const writeIpc = (msg) => console.log(IPC_PREFIX + JSON.stringify(msg));
 
-// Mock process.env with the secrets resolved from Convex
-const process = { env: JSON.parse(${envVarsJson}) };
+// Merge secrets from Convex into the real process.env (don't replace process object)
+Object.assign(process.env, JSON.parse(${envVarsJson}));
 
-const tools = new Proxy({}, {
-  get: (target, prop) => {
-    return async (args) => {
-      try {
-        // CALL BACK TO CONVEX IPC BRIDGE (uses token auth, not userId)
-        const response = await fetch(${JSON.stringify(convexSiteUrl + "/executor/ipc")}, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ipcToken: ${JSON.stringify(ipcToken)},
-            toolPath: prop,
-            args: args || {}
-          })
-        });
+const INTERNAL_PROPS = new Set(['toJSON', 'toString', 'valueOf', 'constructor', 'then', 'Symbol(Symbol.toPrimitive)', 'Symbol(Symbol.iterator)']);
 
-        const data = await response.json();
+function createToolProxy(path) {
+  const fn = async (args) => {
+    try {
+      // CALL BACK TO CONVEX IPC BRIDGE (uses token auth, not userId)
+      const response = await fetch(${JSON.stringify(convexSiteUrl + "/executor/ipc")}, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ipcToken: ${JSON.stringify(ipcToken)},
+          toolPath: path,
+          args: args || {}
+        })
+      });
 
-        if (data.error) {
-          throw new Error(data.error);
-        }
+      const data = await response.json();
 
-        return data;
-      } catch (e) {
-        writeIpc({ type: "failed", error: "IPC Bridge Error: " + e.message });
-        throw e;
+      if (data.error) {
+        throw new Error(data.error);
       }
-    };
-  }
-});
+
+      return data;
+    } catch (e) {
+      writeIpc({ type: "failed", error: "IPC Bridge Error: " + e.message });
+      throw e;
+    }
+  };
+
+  return new Proxy(fn, {
+    get: (target, prop) => {
+      if (typeof prop === 'symbol' || INTERNAL_PROPS.has(prop)) return undefined;
+      const newPath = path ? path + "." + String(prop) : String(prop);
+      return createToolProxy(newPath);
+    }
+  });
+}
+const tools = createToolProxy("");
 
 (async () => {
   try {
-    const result = await (async (tools, process) => {
+    const result = await (async (tools) => {
       ${code}
-    })(tools, process);
+    })(tools);
     writeIpc({ type: "completed", result });
   } catch (e) {
     writeIpc({ type: "failed", error: e.message });
