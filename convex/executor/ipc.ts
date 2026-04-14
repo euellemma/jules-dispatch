@@ -256,7 +256,8 @@ async function resolveHeaders(
 async function invokeOpenApiTool(
   ctx: ActionCtx,
   userId: string,
-  toolDef: OpenApiToolDef,
+  toolDef: any,
+  toolPath: string,
   args: Record<string, unknown>,
 ): Promise<{
   success: boolean;
@@ -264,11 +265,33 @@ async function invokeOpenApiTool(
   error?: string;
   status?: number;
 }> {
-  const { binding, config } = toolDef;
+  // Fetch the actual binding and config from the openapi.bindings namespace
+  const bindingValue = await ctx.runQuery(internal.executor.db.getKv, {
+    userId,
+    namespace: "openapi.bindings",
+    key: toolPath,
+  });
+
+  if (!bindingValue) {
+    return {
+      success: false,
+      error: `Tool binding definition is missing for ${toolPath}.`,
+    };
+  }
+
+  const { binding, config } = JSON.parse(bindingValue);
+
+  if (!binding) {
+    return {
+      success: false,
+      error: `Tool binding definition is missing.`,
+    };
+  }
+
   const { path, missing: missingPath } = resolvePath(
-    binding.pathTemplate,
+    binding.pathTemplate || "",
     args,
-    binding.parameters,
+    binding.parameters || [],
   );
 
   if (missingPath.length > 0) {
@@ -278,8 +301,8 @@ async function invokeOpenApiTool(
     };
   }
 
-  const queryParams = resolveQueryParams(args, binding.parameters);
-  const headerParams = resolveHeaderParams(args, binding.parameters);
+  const queryParams = resolveQueryParams(args, binding.parameters || []);
+  const headerParams = resolveHeaderParams(args, binding.parameters || []);
   const resolvedConfigHeaders = await resolveHeaders(
     config.headers ?? {},
     ctx,
@@ -330,7 +353,11 @@ async function invokeOpenApiTool(
     if (response.ok) {
       return { success: true, data, status: response.status };
     } else {
-      return { success: false, error: String(data), status: response.status };
+      return { 
+        success: false, 
+        error: typeof data === "object" && data !== null ? JSON.stringify(data) : String(data), 
+        status: response.status 
+      };
     }
   } catch (err: any) {
     return { success: false, error: `HTTP request failed: ${err.message}` };
@@ -340,12 +367,26 @@ async function invokeOpenApiTool(
 async function invokeMcpTool(
   ctx: ActionCtx,
   userId: string,
-  toolDef: McpToolDef,
+  toolDef: any,
+  toolPath: string,
   args: Record<string, unknown>,
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
-  const { binding, sourceData } = toolDef;
+  const bindingValue = await ctx.runQuery(internal.executor.db.getKv, {
+    userId,
+    namespace: "mcp.bindings",
+    key: toolPath,
+  });
 
-  if (!sourceData.endpoint) {
+  if (!bindingValue) {
+    return {
+      success: false,
+      error: `Tool binding definition is missing for ${toolPath}.`,
+    };
+  }
+
+  const { binding, sourceData } = JSON.parse(bindingValue);
+
+  if (!sourceData || !sourceData.endpoint) {
     return {
       success: false,
       error: "MCP tool has no endpoint configured (remote transport required).",
@@ -407,10 +448,24 @@ async function invokeMcpTool(
 async function invokeGraphQlTool(
   ctx: ActionCtx,
   userId: string,
-  toolDef: GraphQlToolDef,
+  toolDef: any,
+  toolPath: string,
   args: Record<string, unknown>,
 ): Promise<{ success: boolean; data?: unknown; error?: string }> {
-  const { binding, sourceData } = toolDef;
+  const bindingValue = await ctx.runQuery(internal.executor.db.getKv, {
+    userId,
+    namespace: "graphql.bindings",
+    key: toolPath,
+  });
+
+  if (!bindingValue) {
+    return {
+      success: false,
+      error: `Tool binding definition is missing for ${toolPath}.`,
+    };
+  }
+
+  const { binding, sourceData } = JSON.parse(bindingValue);
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -460,7 +515,8 @@ async function invokeGraphQlTool(
 async function invokeGoogleDiscoveryTool(
   ctx: ActionCtx,
   userId: string,
-  toolDef: GoogleDiscoveryToolDef,
+  toolDef: any,
+  toolPath: string,
   args: Record<string, unknown>,
 ): Promise<{
   success: boolean;
@@ -468,7 +524,20 @@ async function invokeGoogleDiscoveryTool(
   error?: string;
   status?: number;
 }> {
-  const { binding, sourceData } = toolDef;
+  const bindingValue = await ctx.runQuery(internal.executor.db.getKv, {
+    userId,
+    namespace: "google-discovery.bindings",
+    key: toolPath,
+  });
+
+  if (!bindingValue) {
+    return {
+      success: false,
+      error: `Tool binding definition is missing for ${toolPath}.`,
+    };
+  }
+
+  const { binding, sourceData } = JSON.parse(bindingValue);
 
   let urlPath = binding.pathTemplate;
   const queryParams = new URLSearchParams();
@@ -544,7 +613,11 @@ async function invokeGoogleDiscoveryTool(
     if (response.ok) {
       return { success: true, data, status: response.status };
     } else {
-      return { success: false, error: String(data), status: response.status };
+      return { 
+        success: false, 
+        error: typeof data === "object" && data !== null ? JSON.stringify(data) : String(data), 
+        status: response.status 
+      };
     }
   } catch (err: any) {
     return { success: false, error: `Google API call failed: ${err.message}` };
@@ -579,8 +652,8 @@ export const handleIpcCall = internalAction({
       };
     }
 
-    const userId = session.userId;
-    const threadId = userId;
+    const userId = "global_user";
+    const threadId = session.userId;
     logger.tool(`IPC Tool Call: ${args.toolPath}`, args.args, { threadId });
 
     try {
@@ -591,6 +664,27 @@ export const handleIpcCall = internalAction({
         research: internal.tools.index.research,
         // Add more local tools as needed
       };
+
+      // Built-in tools handled inline (not Convex actions)
+      if (args.toolPath === "discover") {
+        const toolEntries = await ctx.runQuery(internal.executor.db.listKv, {
+          userId,
+          namespace: "tools",
+        });
+        const query = (args.args as Record<string, unknown>)?.query as string | undefined;
+        const available = (toolEntries || [])
+          .map((e: { key: string; value: string }) => {
+            try {
+              const def = JSON.parse(e.value);
+              return { name: e.key, plugin: def.pluginKey, description: def.binding?.description || def.description || "" };
+            } catch { return null; }
+          })
+          .filter(Boolean);
+        const filtered = query
+          ? available.filter((t: Record<string, string>) => t.name.toLowerCase().includes(query.toLowerCase()) || t.description.toLowerCase().includes(query.toLowerCase()))
+          : available;
+        return { success: true, data: { tools: filtered, count: filtered.length } };
+      }
 
       if (localTools[args.toolPath]) {
         logger.info(`Routing to local tool: ${args.toolPath}`, { threadId });
@@ -618,19 +712,19 @@ export const handleIpcCall = internalAction({
 
       // 3. Plugin-specific logic
       if (toolDef.pluginKey === "openapi") {
-        return await invokeOpenApiTool(ctx, userId, toolDef, args.args);
+        return await invokeOpenApiTool(ctx, userId, toolDef, args.toolPath, args.args);
       }
 
       if (toolDef.pluginKey === "mcp") {
-        return await invokeMcpTool(ctx, userId, toolDef, args.args);
+        return await invokeMcpTool(ctx, userId, toolDef, args.toolPath, args.args);
       }
 
       if (toolDef.pluginKey === "graphql") {
-        return await invokeGraphQlTool(ctx, userId, toolDef, args.args);
+        return await invokeGraphQlTool(ctx, userId, toolDef, args.toolPath, args.args);
       }
 
       if (toolDef.pluginKey === "google-discovery") {
-        return await invokeGoogleDiscoveryTool(ctx, userId, toolDef, args.args);
+        return await invokeGoogleDiscoveryTool(ctx, userId, toolDef, args.toolPath, args.args);
       }
 
       return {
