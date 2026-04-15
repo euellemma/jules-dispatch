@@ -300,6 +300,19 @@ export const appendPendingMessage = internalMutation({
       .withIndex("by_threadId", q => q.eq("threadId", threadId))
       .first();
     if (!user) return;
+
+    // 1. Save to agent history immediately (Mutation context)
+    // This ensures the action snapshot starting later will see it.
+    await ctx.runMutation(components.agent.messages.addMessages, {
+      threadId,
+      messages: [
+        {
+          message: { role: "user" as const, content: text },
+        },
+      ],
+    });
+
+    // 2. Add to pending queue for batching/processing
     const current = user.pendingMessageText || "";
     const separator = current ? "\n" : "";
     await ctx.db.patch(user._id, {
@@ -307,6 +320,7 @@ export const appendPendingMessage = internalMutation({
     });
   },
 });
+
 
 /**
  * Prepend message to pending queue (puts it first, before existing messages).
@@ -385,6 +399,64 @@ export const getPendingMessages = internalQuery({
       .first();
     return user?.pendingMessageText;
   }
+});
+
+export const healOrphanedToolCalls = internalMutation({
+  args: { threadId: v.string() },
+  handler: async (ctx, { threadId }) => {
+    const msgResult: any = await ctx.runQuery(
+      (components as any).agent.messages.listMessagesByThreadId,
+      {
+        threadId,
+        order: "desc",
+        statuses: ["success", "pending"],
+        paginationOpts: { numItems: 50, cursor: null },
+      },
+    );
+
+    const messages: any[] = msgResult?.page ?? [];
+    if (messages.length === 0) return { healed: false };
+
+    const toolCallIds = new Set<string>();
+    const toolResultIds = new Set<string>();
+
+    for (const m of messages) {
+      const msg = m.message;
+      if (msg?.role === "assistant" && Array.isArray(msg.tool_calls)) {
+        for (const tc of msg.tool_calls) {
+          toolCallIds.add(tc.id);
+        }
+      }
+      if (msg?.role === "tool" && msg.tool_call_id) {
+        toolResultIds.add(msg.tool_call_id);
+      }
+    }
+
+    const orphanedIds = [...toolCallIds].filter((id) => !toolResultIds.has(id));
+    if (orphanedIds.length === 0) return { healed: false };
+
+    const syntheticToolResults = orphanedIds.map((id) => ({
+      message: {
+        role: "tool" as const,
+        tool_call_id: id,
+        content: [
+          {
+            type: "tool-result" as const,
+            toolCallId: id,
+            output: { error: "Tool execution was interrupted. The result is unavailable." },
+            isError: true,
+          },
+        ],
+      },
+    }));
+
+    await ctx.runMutation(components.agent.messages.addMessages, {
+      threadId,
+      messages: syntheticToolResults as any,
+    });
+
+    return { healed: true, count: orphanedIds.length };
+  },
 });
 
 export const clearPendingMessages = internalMutation({

@@ -27,6 +27,7 @@ import { runDeployCommand } from "./commands/deploy.js";
 import { runSyncCommand } from "./commands/sync.js";
 import { runSendMessageCommand } from "./commands/send-message.js";
 import { runUploadFileCommand } from "./commands/upload-file.js";
+import { runPauseAndWaitCommand, runWaitInstructionCommand } from "./commands/pause-and-wait.js";
 import { cliLogger } from "./utils/logger.js";
 
 const program = new Command();
@@ -602,18 +603,46 @@ program
     }
   });
 
-// Parse and check if we need to run default wizard
-program.parse(process.argv);
-
-// If no command was matched, run the wizard
-const options = program.opts();
-if (!program.args.length && !options.update && !options.deploy) {
-  (async () => {
+program
+  .command("pause-and-wait <session-label> [file]")
+  .description("Pause a terminal agent and wait for instruction from Jules Dispatch")
+  .option("--context <context>", "Additional context message")
+  .option("--json", "Output raw JSON")
+  .action(async (sessionLabel, file, options) => {
     try {
-      await runWizard();
+      await runPauseAndWaitCommand(sessionLabel, file, options);
     } catch (error) {
-      handleError(error, "location");
+      cliLogger.error("Pause-and-wait command failed", error instanceof Error ? error : new Error(String(error)));
       process.exit(1);
     }
-  })();
+  });
+
+program
+  .command("wait-instruction <session-label>")
+  .description("Wait for an instruction from Jules Dispatch for a paused session")
+  .option("--json", "Output raw JSON")
+  .action(async (sessionLabel, options) => {
+    try {
+      await runWaitInstructionCommand(sessionLabel, options);
+    } catch (error) {
+      cliLogger.error("Wait-instruction command failed", error instanceof Error ? error : new Error(String(error)));
+      process.exit(1);
+    }
+  });
+
+// Parse and check if we need to run default wizard
+if (process.argv.length > 2) {
+  try {
+    await program.parseAsync(process.argv);
+  } catch (error) {
+    cliLogger.error("CLI execution failed", error instanceof Error ? error : new Error(String(error)));
+    process.exit(1);
+  }
+} else {
+  try {
+    await runWizard();
+  } catch (error) {
+    handleError(error, "location");
+    process.exit(1);
+  }
 }

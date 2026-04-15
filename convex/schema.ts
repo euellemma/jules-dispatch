@@ -153,6 +153,24 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_githubRepo", ["githubRepo"]),
 
+  terminalInteractions: defineTable({
+    interactionId: v.string(),
+    threadId: v.string(),
+    sessionLabel: v.string(),
+    filePath: v.string(),
+    fileContent: v.string(),
+    status: v.string(),
+    context: v.optional(v.string()),
+    response: v.optional(v.string()),
+    createdAt: v.number(),
+    respondedAt: v.optional(v.number()),
+    consumedAt: v.optional(v.number()),
+  })
+    .index("by_interactionId", ["interactionId"])
+    .index("by_sessionLabel", ["sessionLabel"])
+    .index("by_status", ["status"])
+    .index("by_sessionLabel_status", ["sessionLabel", "status"]),
+
   llmCalls: defineTable({
     threadId: v.string(),
     userId: v.string(),
@@ -189,5 +207,5 @@ export default defineSchema({
       }),
     ),
     updatedAt: v.number(),
-  }),
+  }).index("by_updatedAt", ["updatedAt"]),
 });

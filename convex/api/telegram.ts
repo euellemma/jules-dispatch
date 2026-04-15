@@ -213,7 +213,7 @@ export async function processTelegramUpdate(
     try {
       // Check singleton bot config (saves DB read)
       const botConfig = await ctx.runQuery(
-        internal.config.botConfig.getOrInitConfig,
+        internal.config.botConfig.getConfig,
         {},
       );
 
@@ -221,7 +221,16 @@ export async function processTelegramUpdate(
 
       // Check if bot config is empty and auto-initialize from env if available
       if (!botConfig && isConfigured(INITIAL_CONFIG)) {
-        await ctx.runMutation(internal.config.botConfig.initFromEnv, {});
+        await ctx.runMutation(internal.config.botConfig.updateConfig, {
+          julesApiKey: INITIAL_CONFIG.julesApiKey,
+          exaApiKey: INITIAL_CONFIG.exaApiKey,
+          providerConfig: {
+            endpoint: INITIAL_CONFIG.llmEndpoint,
+            model: INITIAL_CONFIG.llmModel,
+            apiKey: INITIAL_CONFIG.llmApiKey,
+            sdkType: INITIAL_CONFIG.llmSdkType,
+          },
+        });
         justSeeded = true;
       }
 
@@ -591,10 +600,12 @@ async function processWithLock(
       "ai.model": typeof model === "string" ? model : (model as any)?.model,
     });
 
+    // Run agent turn on the existing history (no prompt argument)
+    // This ensures we pick up the message saved in the mutation turn.
     const result = await julesAgent.generateText(
       ctx,
       { threadId, userId: telegramChatId },
-      { model, prompt: batchPrompt },
+      { model },
     );
 
     // Send the agent's response directly to Telegram
@@ -612,12 +623,41 @@ async function processWithLock(
     logger.error("[processMessageQueue] Error:", error);
     const errorMessage = error?.message || String(error);
 
+    // Handle orphaned tool calls — heal the thread history and retry
+    if (errorMessage.includes("Tool result is missing for tool call") || errorMessage.includes("AI_MissingToolResultsError")) {
+      logger.warn(`[processMessageQueue] Orphaned tool calls detected on thread ${threadId}, healing and retrying`);
+      try {
+        await ctx.runMutation(internal.users.db.healOrphanedToolCalls, { threadId });
+      } catch (healError: any) {
+        logger.error("[processMessageQueue] Failed to heal orphaned tool calls:", healError);
+      }
+      // Re-queue the messages and retry
+      await ctx.runMutation(internal.users.db.prependPendingMessage, {
+        threadId,
+        text: pendingText,
+      });
+      await ctx.scheduler.runAfter(0, internal.api.telegram.processMessageQueue, {
+        threadId,
+        telegramChatId,
+      });
+      return;
+    }
+
     // Re-queue the failed messages so they can be retried
-    // Prepend (not append) so old messages are processed before any new ones
     await ctx.runMutation(internal.users.db.prependPendingMessage, {
       threadId,
       text: pendingText,
     });
+
+    // Handle snapshot race condition transparently
+    if (errorMessage.includes("messages must not be empty")) {
+      logger.warn(`[processMessageQueue] Snapshot race detected on thread ${threadId}, retrying immediately`);
+      await ctx.scheduler.runAfter(0, internal.api.telegram.processMessageQueue, {
+        threadId,
+        telegramChatId,
+      });
+      return;
+    }
 
     if (isNonRetriableError(error)) {
       await sendTelegramMessage(
@@ -687,11 +727,11 @@ export const sendChatMessage = internalAction({
   },
   handler: async (ctx: any, args: { chatId: string; message: string; parseMode?: "HTML" | "MarkdownV2" }) => {
     try {
-      // Format the message for Telegram (convert to MarkdownV2)
-      const formattedMessage = formatTelegramMessage(args.message);
-      const chunks = chunkMessage(formattedMessage);
+      // Chunk the message first, then format each chunk for Telegram (MarkdownV2)
+      const chunks = chunkMessage(args.message);
       for (const chunk of chunks) {
-        await sendTelegramMessage(args.chatId, chunk, args.parseMode ?? "MarkdownV2");
+        const formattedChunk = args.parseMode === "HTML" ? chunk : formatTelegramMessage(chunk);
+        await sendTelegramMessage(args.chatId, formattedChunk, args.parseMode ?? "MarkdownV2");
       }
     } catch (error) {
       logger.error("[sendChatMessage] Error sending message:", error);

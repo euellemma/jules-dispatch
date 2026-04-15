@@ -247,10 +247,15 @@ export const bulkSyncHttp = httpAction(async (ctx, request) => {
     });
   }
 
-  await ctx.runMutation(internal.executor.db.bulkSyncMutationInternal, {
-    userId: body.userId,
-    entries: body.entries,
-  });
+  // Process in batches of 500 to stay within limits
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < body.entries.length; i += BATCH_SIZE) {
+    const chunk = body.entries.slice(i, i + BATCH_SIZE);
+    await ctx.runMutation(internal.executor.db.bulkSyncMutationInternal, {
+      userId: body.userId,
+      entries: chunk,
+    });
+  }
 
   return new Response(JSON.stringify({ synced: body.entries.length }), {
     status: 200,
@@ -301,12 +306,26 @@ export const bulkSyncWithReplaceHttp = httpAction(async (ctx, request) => {
     });
   }
 
-  // Delete all existing entries for each namespace being replaced
-  await ctx.runMutation(internal.executor.db.bulkSyncWithReplaceMutationInternal, {
-    userId: body.userId,
-    entries: body.entries,
-    namespaces: body.namespaces,
-  });
+  // 1. Clear namespaces in batches
+  for (const ns of body.namespaces) {
+    while (true) {
+      const deletedCount = await ctx.runMutation(internal.executor.db.clearBatchInternal, {
+        userId: body.userId,
+        namespace: ns,
+      });
+      if (deletedCount === 0) break;
+    }
+  }
+
+  // 2. Insert new entries in batches
+  const BATCH_SIZE = 500;
+  for (let i = 0; i < body.entries.length; i += BATCH_SIZE) {
+    const chunk = body.entries.slice(i, i + BATCH_SIZE);
+    await ctx.runMutation(internal.executor.db.bulkSyncMutationInternal, {
+      userId: body.userId,
+      entries: chunk,
+    });
+  }
 
   return new Response(JSON.stringify({ synced: body.entries.length, namespaces: body.namespaces }), {
     status: 200,
@@ -356,10 +375,15 @@ export const syncSecretsHttp = httpAction(async (ctx, request) => {
     });
   }
 
-  await ctx.runMutation(internal.executor.db.syncSecretsMutationInternal, {
-    userId: body.userId,
-    secrets: body.secrets,
-  });
+  // Process in batches of 100 (secrets are usually smaller but let's be safe)
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < body.secrets.length; i += BATCH_SIZE) {
+    const chunk = body.secrets.slice(i, i + BATCH_SIZE);
+    await ctx.runMutation(internal.executor.db.syncSecretsMutationInternal, {
+      userId: body.userId,
+      secrets: chunk,
+    });
+  }
 
   return new Response(JSON.stringify({ synced: body.secrets.length }), {
     status: 200,
@@ -438,35 +462,24 @@ export const bulkSyncMutationInternal = internalMutation({
   }
 });
 
-export const bulkSyncWithReplaceMutationInternal = internalMutation({
+export const clearBatchInternal = internalMutation({
   args: {
     userId: v.string(),
-    entries: v.array(v.object({ namespace: v.string(), key: v.string(), value: v.string() })),
-    namespaces: v.array(v.string()),
+    namespace: v.string(),
   },
   handler: async (ctx, args) => {
-    for (const ns of args.namespaces) {
-      const existing = await ctx.db
-        .query("executor_kv")
-        .withIndex("by_user_ns", (q) =>
-          q.eq("userId", args.userId).eq("namespace", ns)
-        )
-        .collect();
+    const existing = await ctx.db
+      .query("executor_kv")
+      .withIndex("by_user_ns", (q) =>
+        q.eq("userId", args.userId).eq("namespace", args.namespace)
+      )
+      .take(500);
 
-      for (const entry of existing) {
-        await ctx.db.delete(entry._id);
-      }
+    for (const entry of existing) {
+      await ctx.db.delete(entry._id);
     }
-
-    for (const entry of args.entries) {
-      await ctx.db.insert("executor_kv", {
-        userId: args.userId,
-        namespace: entry.namespace,
-        key: entry.key,
-        value: entry.value,
-      });
-    }
-  }
+    return existing.length;
+  },
 });
 
 export const syncSecretsMutationInternal = internalMutation({

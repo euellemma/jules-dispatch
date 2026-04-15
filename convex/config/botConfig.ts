@@ -13,8 +13,6 @@ export interface BotConfig {
   updatedAt: number;
 }
 
-const DEFAULT_CONFIG_ID = "singleton";
-
 /**
  * Get bot configuration (singleton pattern).
  * Always returns the first (and only) config document.
@@ -87,75 +85,5 @@ export const updateConfig = internalMutation({
     }
     
     return { success: true };
-  },
-});
-
-/**
- * Initialize config from environment variables if empty.
- * Called once on startup/first request.
- */
-export const initFromEnv = internalMutation({
-  args: {},
-  handler: async (ctx): Promise<{ initialized: boolean }> => {
-    // Check if config already exists
-    const existing = await ctx.db
-      .query("bot_config")
-      .order("desc")
-      .first();
-    
-    if (existing) {
-      return { initialized: false };
-    }
-    
-    // Initialize from env vars
-    const julesKey = process.env.JULES_API_KEY;
-    const exaKey = process.env.EXA_API_KEY;
-    const llmEndpoint = process.env.LLM_ENDPOINT;
-    const llmModel = process.env.LLM_MODEL;
-    const llmApiKey = process.env.LLM_API_KEY;
-    const llmSdkType = process.env.LLM_SDK_TYPE as "openai" | "anthropic" | "google" | "openai-compatible" | undefined;
-    
-    // Only create if we have at least something
-    if (julesKey || exaKey || llmEndpoint) {
-      await ctx.db.insert("bot_config", {
-        julesApiKey: julesKey,
-        exaApiKey: exaKey,
-        providerConfig: llmEndpoint && llmModel && llmApiKey
-          ? {
-              endpoint: llmEndpoint,
-              model: llmModel,
-              apiKey: llmApiKey,
-              sdkType: (llmSdkType as "openai" | "anthropic" | "google" | "openai-compatible") ?? "openai-compatible",
-            }
-          : undefined,
-        updatedAt: Date.now(),
-      });
-      return { initialized: true };
-    }
-    
-    return { initialized: false };
-  },
-});
-
-/**
- * Get or initialize configuration.
- * Safe to call from any context - will auto-initialize from env on first call.
- */
-export const getOrInitConfig = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<BotConfig | null> => {
-    const config = await ctx.db
-      .query("bot_config")
-      .order("desc")
-      .first();
-    
-    if (!config) return null;
-    
-    return {
-      julesApiKey: config.julesApiKey ?? null,
-      exaApiKey: config.exaApiKey ?? null,
-      providerConfig: config.providerConfig ?? null,
-      updatedAt: config.updatedAt,
-    };
   },
 });

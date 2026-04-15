@@ -92,36 +92,42 @@ export async function resolveLanguageModel(ctx: any, threadId: string, userId: s
           const completionTokens = result.usage.outputTokens.total ?? 0;
 
           // Asynchronously log the call
-          ctx.runMutation(internal["llmCalls/actions"].insertLlmCall, {
-            threadId: threadId ?? "unknown",
-            userId: userId ?? threadId ?? "unknown",
-            model: model,
-            provider,
-            requestBody: stripReserved(params.prompt),
-            responseBody: stripReserved(result),
-            finishReason: result.finishReason?.unified ?? result.finishReason?.raw ?? "unknown",
-            usage: {
-              promptTokens,
-              completionTokens,
-              totalTokens: promptTokens + completionTokens,
-            },
-            durationMs,
-            status: "success",
-          }).catch((e: any) => console.error("[resolveLanguageModel] mutation error:", e));
+          const LOG_LLM_CALLS = false;
+          if (LOG_LLM_CALLS) {
+            ctx.runMutation(internal["llmCalls/actions"].insertLlmCall, {
+              threadId: threadId ?? "unknown",
+              userId: userId ?? threadId ?? "unknown",
+              model: model,
+              provider,
+              requestBody: JSON.stringify(stripReserved(params.prompt)),
+              responseBody: JSON.stringify(stripReserved(result)),
+              finishReason: result.finishReason?.unified ?? result.finishReason?.raw ?? "unknown",
+              usage: {
+                promptTokens,
+                completionTokens,
+                totalTokens: promptTokens + completionTokens,
+              },
+              durationMs,
+              status: "success",
+            }).catch((e: any) => console.error("[resolveLanguageModel] mutation error:", e));
+          }
 
           return result;
         } catch (error: any) {
           const durationMs = Date.now() - startMs;
-          ctx.runMutation(internal["llmCalls/actions"].insertLlmCall, {
-            threadId: threadId ?? "unknown",
-            userId: userId ?? threadId ?? "unknown",
-            model: model,
-            provider,
-            requestBody: stripReserved(params.prompt),
-            responseBody: { error: error?.message ?? String(error) },
-            durationMs,
-            status: "error",
-          }).catch((e: any) => console.error("[resolveLanguageModel] mutation error:", e));
+          const LOG_LLM_CALLS = false;
+          if (LOG_LLM_CALLS) {
+            ctx.runMutation(internal["llmCalls/actions"].insertLlmCall, {
+              threadId: threadId ?? "unknown",
+              userId: userId ?? threadId ?? "unknown",
+              model: model,
+              provider,
+              requestBody: JSON.stringify(stripReserved(params.prompt)),
+              responseBody: JSON.stringify({ error: error?.message ?? String(error) }),
+              durationMs,
+              status: "error",
+            }).catch((e: any) => console.error("[resolveLanguageModel] mutation error:", e));
+          }
           throw error;
         }
       },

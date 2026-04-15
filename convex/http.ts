@@ -124,6 +124,20 @@ http.route({
     async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
   ),
 });
+http.route({
+  path: "/api/pause-and-wait",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
+  ),
+});
+http.route({
+  path: "/api/get-instruction",
+  method: "OPTIONS",
+  handler: httpAction(
+    async () => new Response(null, { status: 204, headers: CORS_HEADERS }),
+  ),
+});
 
 // API: Get provider config (for React app)
 http.route({
@@ -420,59 +434,120 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 25000;
+
+async function getLatestAssistantResponse(
+  ctx: GenericActionCtx<any>,
+  threadId: string,
+): Promise<string | null> {
+  const msgResult = await ctx.runQuery(
+    (components as any).agent.messages.listMessagesByThreadId,
+    {
+      threadId,
+      order: "desc",
+      statuses: ["success"],
+      paginationOpts: { numItems: 20, cursor: null },
+    },
+  );
+
+  const messages: any[] = msgResult.page ?? [];
+
+  for (const msg of messages) {
+    const role = msg.message?.role;
+    if (role === "assistant") {
+      let text = "";
+      if (typeof msg.message.content === "string") {
+        text = msg.message.content;
+      } else if (Array.isArray(msg.message.content)) {
+        text = msg.message.content
+          .filter((c: any) => c.type === "text")
+          .map((c: any) => c.text)
+          .join("");
+      }
+      if (text.trim()) {
+        return text.trim();
+      }
+    }
+  }
+
+  return null;
+}
+
 // API: Send message to bot
 http.route({
   path: "/api/send-message",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     try {
-      // Verify deploy key
       const authError = await verifyDeployKey(request);
       if (authError) return authError;
 
-      // Get user
       const user = await ctx.runQuery(internal.users.db.getAnyExistingUser);
       if (!user) {
         return corsResponse({ error: "No user configured" }, 400);
       }
       const telegramChatId = user.telegramChatId;
 
-      // Parse body
-      const body = (await request.json()) as { message?: string };
+      const contentType = request.headers.get("content-type");
+      if (!contentType?.includes("application/json")) {
+        return corsResponse(
+          { error: "Content-Type must be application/json" },
+          400
+        );
+      }
+
+      const rawText = await request.text();
+      if (!rawText || !rawText.trim()) {
+        return corsResponse({ error: "Request body is empty" }, 400);
+      }
+
+      let body: { message?: string };
+      try {
+        body = JSON.parse(rawText);
+      } catch {
+        return corsResponse({ error: "Invalid JSON in request body" }, 400);
+      }
+
       const message = body.message?.trim();
 
       if (!message) {
         return corsResponse({ error: "Missing message" }, 400);
       }
 
-      // Get or create thread
       const threadId = await ctx.runMutation(
         internal.users.db.getOrCreateUserThread,
         { telegramChatId }
       );
 
-      // Queue message (mark as from API)
       await ctx.runMutation(internal.users.db.appendPendingMessage, {
         threadId,
         text: message + " [sent through API]",
       });
 
-      // Reset failures
       await ctx.runMutation(internal.users.db.resetConsecutiveFailures, {
         telegramChatId,
       });
 
-      // Always trigger queue processing - self-draining model
       await ctx.scheduler.runAfter(
         0,
         internal.api.telegram.processMessageQueue,
         { threadId, telegramChatId }
       );
 
+      const startTime = Date.now();
+      let response: string | null = null;
+
+      while (Date.now() - startTime < POLL_TIMEOUT_MS) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        response = await getLatestAssistantResponse(ctx, threadId);
+        if (response) break;
+      }
+
       return corsResponse({
-        success: true,
         threadId,
-        agentTriggered: true,
+        response,
+        timedOut: response === null,
       });
     } catch (error) {
       logger.error("[http] Send message error:", error);
@@ -487,52 +562,169 @@ http.route({
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     try {
-      // Verify deploy key
       const authError = await verifyDeployKey(request);
       if (authError) return authError;
 
-      // Parse body
       const body = (await request.json()) as { threadId?: string };
       if (!body.threadId) {
         return corsResponse({ error: "Missing threadId" }, 400);
       }
 
-      // Query agent messages for this thread — get the latest assistant message
-      const msgResult = await ctx.runQuery(
-        (components as any).agent.messages.listMessagesByThreadId,
-        {
-          threadId: body.threadId,
-          order: "desc",
-          statuses: ["success"],
-          paginationOpts: { numItems: 20, cursor: null },
-        },
-      );
-
-      const messages: any[] = msgResult.page ?? [];
-
-      // Find the most recent assistant message
-      for (const msg of messages) {
-        const role = msg.message?.role;
-        if (role === "assistant") {
-          let text = "";
-          if (typeof msg.message.content === "string") {
-            text = msg.message.content;
-          } else if (Array.isArray(msg.message.content)) {
-            text = msg.message.content
-              .filter((c: any) => c.type === "text")
-              .map((c: any) => c.text)
-              .join("");
-          }
-          if (text.trim()) {
-            return corsResponse({ response: text.trim() });
-          }
-        }
-      }
-
-      // No assistant response yet
-      return corsResponse({ response: null });
+      const response = await getLatestAssistantResponse(ctx, body.threadId);
+      return corsResponse({ response });
     } catch (error) {
       logger.error("[http] Get response error:", error);
+      return corsResponse({ error: "Internal error" }, 500);
+    }
+  }),
+});
+
+// API: Pause-and-wait — terminal agent sends context and waits for instruction
+http.route({
+  path: "/api/pause-and-wait",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const authError = await verifyDeployKey(request);
+      if (authError) return authError;
+
+      const user = await ctx.runQuery(internal.users.db.getAnyExistingUser);
+      if (!user) {
+        return corsResponse({ error: "No user configured" }, 400);
+      }
+      const telegramChatId = user.telegramChatId;
+
+      const contentType = request.headers.get("content-type");
+      if (!contentType?.includes("application/json")) {
+        return corsResponse({ error: "Content-Type must be application/json" }, 400);
+      }
+
+      const body = (await request.json()) as {
+        sessionLabel?: string;
+        filePath?: string;
+        fileContent?: string;
+        context?: string;
+      };
+
+      const sessionLabel = body.sessionLabel?.trim();
+      if (!sessionLabel) {
+        return corsResponse({ error: "Missing sessionLabel" }, 400);
+      }
+
+      const fileContent = body.fileContent ?? "";
+      const filePath = body.filePath ?? "";
+      const context = body.context?.trim();
+
+      const MAX_CONTEXT_SIZE = 100_000;
+      const totalSize = fileContent.length + (context?.length ?? 0);
+      if (totalSize > MAX_CONTEXT_SIZE) {
+        return corsResponse({ error: `Context too large (${totalSize} bytes). Maximum is ${MAX_CONTEXT_SIZE} bytes.` }, 413);
+      }
+
+      const duplicate = await ctx.runQuery(internal.terminal.db.checkDuplicateWaiting, {
+        sessionLabel,
+      });
+      if (duplicate) {
+        return corsResponse({
+          error: `A waiting interaction already exists for label "${sessionLabel}". Use a unique label (e.g. "${sessionLabel}-2") or wait for the existing interaction to be responded to.`,
+          existingInteractionId: duplicate.interactionId,
+        }, 409);
+      }
+
+      const threadId = await ctx.runMutation(
+        internal.users.db.getOrCreateUserThread,
+        { telegramChatId }
+      );
+
+      const interactionId = crypto.randomUUID();
+
+      await ctx.runMutation(internal.terminal.db.createInteraction, {
+        interactionId,
+        threadId,
+        sessionLabel,
+        filePath,
+        fileContent,
+        context: context || undefined,
+      });
+
+      const injectedMessage = `[TERMINAL AGENT: ${sessionLabel}] is waiting for instructions.` +
+        (filePath ? ` File: ${filePath}` : "") +
+        (context ? `\n\nContext:\n${context}` : "") +
+        (fileContent && !context ? `\n\nContext:\n${fileContent}` : "");
+
+      await ctx.runMutation(internal.users.db.appendPendingMessage, {
+        threadId,
+        text: injectedMessage,
+      });
+
+      await ctx.runMutation(internal.users.db.resetConsecutiveFailures, {
+        telegramChatId,
+      });
+
+      await ctx.scheduler.runAfter(
+        0,
+        internal.api.telegram.processMessageQueue,
+        { threadId, telegramChatId }
+      );
+
+      return corsResponse({
+        success: true,
+        interactionId,
+        sessionLabel,
+      });
+    } catch (error) {
+      logger.error("[http] Pause-and-wait error:", error);
+      return corsResponse({ error: "Internal error" }, 500);
+    }
+  }),
+});
+
+// API: Get-instruction — poll for response to a terminal interaction
+http.route({
+  path: "/api/get-instruction",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    try {
+      const authError = await verifyDeployKey(request);
+      if (authError) return authError;
+
+      const body = (await request.json()) as {
+        interactionId?: string;
+        sessionLabel?: string;
+      };
+
+      let interaction: any = null;
+
+      if (body.interactionId) {
+        interaction = await ctx.runQuery(internal.terminal.db.getInteractionById, {
+          interactionId: body.interactionId,
+        });
+      } else if (body.sessionLabel) {
+        interaction = await ctx.runQuery(internal.terminal.db.getLatestInteractionBySessionLabel, {
+          sessionLabel: body.sessionLabel,
+        });
+      } else {
+        return corsResponse({ error: "Missing interactionId or sessionLabel" }, 400);
+      }
+
+      if (!interaction) {
+        return corsResponse({ status: "waiting", response: null });
+      }
+
+      if (interaction.status === "responded" && interaction.response) {
+        await ctx.runMutation(internal.terminal.db.markConsumed, {
+          interactionId: interaction.interactionId,
+        });
+        return corsResponse({
+          status: "responded",
+          response: interaction.response,
+          interactionId: interaction.interactionId,
+        });
+      }
+
+      return corsResponse({ status: interaction.status, response: null });
+    } catch (error) {
+      logger.error("[http] Get instruction error:", error);
       return corsResponse({ error: "Internal error" }, 500);
     }
   }),
@@ -747,6 +939,85 @@ http.route({
                         size: { type: "number" },
                         threadId: { type: "string" },
                         promptProcessed: { type: "boolean" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/pause-and-wait": {
+          post: {
+            operationId: "pauseAndWait",
+            summary: "Terminal agent sends context and waits for instruction",
+            description: "Creates a terminal interaction, injects context into the agent thread, and returns an interactionId for polling",
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      sessionLabel: { type: "string", description: "Kebab-case identifier for the terminal session" },
+                      filePath: { type: "string", description: "Original file path/name" },
+                      fileContent: { type: "string", description: "Contents of the context file" },
+                      context: { type: "string", description: "Optional additional context message" }
+                    },
+                    required: ["sessionLabel"]
+                  }
+                }
+              }
+            },
+            responses: {
+              "200": {
+                description: "Interaction created",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        success: { type: "boolean" },
+                        interactionId: { type: "string" },
+                        sessionLabel: { type: "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "/api/get-instruction": {
+          post: {
+            operationId: "getInstruction",
+            summary: "Poll for response to a terminal interaction",
+            description: "Check if the agent has responded to a terminal interaction. Use interactionId (from pause-and-wait) or sessionLabel to poll.",
+            requestBody: {
+              required: true,
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      interactionId: { type: "string", description: "The interaction ID returned by pause-and-wait" },
+                      sessionLabel: { type: "string", description: "The session label to find the latest responded interaction" }
+                    }
+                  }
+                }
+              }
+            },
+            responses: {
+              "200": {
+                description: "Poll result",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: {
+                        status: { type: "string", enum: ["waiting", "responded", "consumed"] },
+                        response: { type: "string", nullable: true },
+                        interactionId: { type: "string" }
                       }
                     }
                   }

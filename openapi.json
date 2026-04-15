@@ -41,15 +41,15 @@
         },
         "responses": {
           "200": {
-            "description": "Message sent successfully",
+            "description": "Message sent. If the agent responded within the timeout, the response is included. If not, timedOut is true and you can poll /api/get-response with the threadId.",
             "content": {
               "application/json": {
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "success": { "type": "boolean" },
                     "threadId": { "type": "string" },
-                    "agentTriggered": { "type": "boolean" }
+                    "response": { "type": "string", "nullable": true, "description": "The agent's latest response text, or null if timed out" },
+                    "timedOut": { "type": "boolean", "description": "True if the agent did not respond within the timeout window" }
                   }
                 }
               }
@@ -57,6 +57,51 @@
           },
           "400": {
             "description": "Bad request - missing message or no user configured"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing deploy key"
+          }
+        }
+      }
+    },
+    "/api/get-response": {
+      "post": {
+        "operationId": "getResponse",
+        "summary": "Get the latest agent response for a thread",
+        "description": "Polls for the latest assistant response in a thread. Use this after a send-message call that returned timedOut: true.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "threadId": {
+                    "type": "string",
+                    "description": "The thread ID returned by send-message"
+                  }
+                },
+                "required": ["threadId"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Latest agent response (or null if not ready yet)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "response": { "type": "string", "nullable": true, "description": "The agent's latest response text, or null if no response yet" }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request - missing threadId"
           },
           "401": {
             "description": "Unauthorized - invalid or missing deploy key"

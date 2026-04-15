@@ -1,30 +1,14 @@
 import * as fs from "fs";
 import * as path from "path";
-import { readHomeConfig, parseDeployKey } from "../config.js";
+
+import { readHomeConfig } from "../config.js";
+import { getConvexSiteUrl } from "../utils.js";
 import { cliLogger } from "../utils/logger.js";
 import { info, success, error, jsonOut } from "../utils/output.js";
 
 const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
 const WAIT_POLL_INTERVAL_MS = 2000;
 const WAIT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-
-function getConvexSiteUrl(config: ReturnType<typeof readHomeConfig>): string {
-  const envUrl = process.env.JULES_DISPATCH_SITE_URL;
-  if (envUrl) return envUrl;
-
-  if (!config?.installPath) return "";
-  const envLocalPath = path.join(config.installPath, ".env.local");
-  if (fs.existsSync(envLocalPath)) {
-    const env = fs.readFileSync(envLocalPath, "utf-8");
-    const urlMatch = env.match(/CONVEX_SITE_URL=(.+)/);
-    if (urlMatch) return urlMatch[1]!.trim();
-  }
-  if (config.deployKey) {
-    const keyInfo = parseDeployKey(config.deployKey);
-    if (keyInfo) return keyInfo.convexSiteUrl;
-  }
-  return "";
-}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -74,18 +58,18 @@ export async function runUploadFileCommand(
 
   if (!fs.existsSync(filePath)) {
     error(`File not found: ${filePath}`);
-    process.exit(4);
+    process.exit(1);
   }
 
   const stats = fs.statSync(filePath);
   if (!stats.isFile()) {
     error(`Not a file: ${filePath}`);
-    process.exit(4);
+    process.exit(1);
   }
 
   if (stats.size > MAX_SIZE_BYTES) {
     error(`File too large: ${formatFileSize(stats.size)} (max 20MB)`);
-    process.exit(4);
+    process.exit(1);
   }
 
   const deployKey = process.env.JULES_DISPATCH_DEPLOY_KEY;
@@ -201,6 +185,6 @@ export async function runUploadFileCommand(
   } catch (err: any) {
     cliLogger.error("Upload file failed", err);
     error(`Network error: ${err.message}`);
-    process.exit(2);
+    process.exit(1);
   }
 }

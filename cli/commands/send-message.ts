@@ -1,29 +1,10 @@
-import * as fs from "fs";
-import * as path from "path";
-import { readHomeConfig, parseDeployKey } from "../config.js";
+import { readHomeConfig } from "../config.js";
+import { getConvexSiteUrl } from "../utils.js";
 import { cliLogger } from "../utils/logger.js";
 import { info, success, error, jsonOut } from "../utils/output.js";
 
 const WAIT_POLL_INTERVAL_MS = 2000;
 const WAIT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-
-function getConvexSiteUrl(config: ReturnType<typeof readHomeConfig>): string {
-  const envUrl = process.env.JULES_DISPATCH_SITE_URL;
-  if (envUrl) return envUrl;
-
-  if (!config?.installPath) return "";
-  const envLocalPath = path.join(config.installPath, ".env.local");
-  if (fs.existsSync(envLocalPath)) {
-    const env = fs.readFileSync(envLocalPath, "utf-8");
-    const urlMatch = env.match(/CONVEX_SITE_URL=(.+)/);
-    if (urlMatch) return urlMatch[1]!.trim();
-  }
-  if (config.deployKey) {
-    const keyInfo = parseDeployKey(config.deployKey);
-    if (keyInfo) return keyInfo.convexSiteUrl;
-  }
-  return "";
-}
 
 async function readStdin(): Promise<string> {
   return new Promise((resolve) => {
@@ -176,6 +157,6 @@ export async function runSendMessageCommand(
   } catch (err: any) {
     cliLogger.error("Send message failed", err);
     error(`Network error: ${err.message}`);
-    process.exit(2);
+    process.exit(1);
   }
 }

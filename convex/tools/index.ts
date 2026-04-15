@@ -256,6 +256,7 @@ export { search_history } from "../memory/searchTool";
 export { createReportToOrchestratorTool } from "./reportToOrchestrator";
 
 export { provision_bot } from "./selfBuild";
+export { message_terminal } from "./messageTerminal";
 
 /**
  * query_sessions — Browse and manage the user's Jules sessions.

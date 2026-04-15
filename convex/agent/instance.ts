@@ -98,7 +98,14 @@ export const unifiedContextHandler: ContextHandler = async (ctx, args) => {
   // Combine: context/rules (cache foundation) + background search + active recent
   const finalMessages = [...contextMessages, ...search, ...recent];
 
+  if (finalMessages.length === 0) {
+    // Satisfy AI SDK requirement for at least one message.
+    // This handles rare edge cases like new threads where snapshot lag is present.
+    finalMessages.push({ role: "user", content: "hi" });
+  }
+
   // LOG CONTEXT SNAPSHOT (using standardized AI keys for Axiom)
+
   logger.context(`Context Built for thread ${threadId}`, undefined, {
     threadId,
     userId: telegramChatId,
@@ -140,6 +147,7 @@ maxSteps: 50,  contextOptions: {
     manage_memory: tools.manage_memory,
     search_history: tools.search_history,
     provision_bot: tools.provision_bot,
+    message_terminal: tools.message_terminal,
   },
 });
 

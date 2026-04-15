@@ -27,16 +27,31 @@ export const execute_code = createTool({
 
       if (result.error) {
         logger.error("execute_code execution failed", new Error(result.error), { threadId });
-        return `Execution Error: ${result.error}\n\nLogs:\n${(result.logs || []).join("\n")}`;
+        let errOutput = `Execution Error: ${result.error}\n\nLogs:\n${(result.logs || []).join("\n")}`;
+        const MAX_ERR_LENGTH = 20000;
+        if (errOutput.length > MAX_ERR_LENGTH) {
+          errOutput = errOutput.slice(0, MAX_ERR_LENGTH) + "\n\n...[TRUNCATED: Output too large.]";
+        }
+        return errOutput;
       }
 
       const formattedResult = typeof result.result === "string" 
         ? result.result 
         : JSON.stringify(result.result, null, 2);
 
-      logger.tool(`[execute_code] Received result`, { result: formattedResult }, { threadId });
+      const MAX_LOG_LENGTH = 1000;
+      const logFormattedResult = formattedResult && formattedResult.length > MAX_LOG_LENGTH 
+        ? formattedResult.slice(0, MAX_LOG_LENGTH) + "... [TRUNCATED FOR LOGS]" 
+        : formattedResult;
+
+      logger.tool(`[execute_code] Received result`, { result: logFormattedResult }, { threadId });
       
-      return `Result:\n${formattedResult}\n\nLogs:\n${(result.logs || []).join("\n")}`;
+      let outputString = `Result:\n${formattedResult}\n\nLogs:\n${(result.logs || []).join("\n")}`;
+      const MAX_OUTPUT_LENGTH = 20000;
+      if (outputString.length > MAX_OUTPUT_LENGTH) {
+        outputString = outputString.slice(0, MAX_OUTPUT_LENGTH) + "\n\n...[TRUNCATED: Output too large. Please refine your code to return less data or paginate results.]";
+      }
+      return outputString;
     } catch (err: any) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error("execute_code system error", err, { threadId });
