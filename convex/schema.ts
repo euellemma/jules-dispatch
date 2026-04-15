@@ -2,6 +2,35 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  projects: defineTable({
+    repo: v.string(),
+    threadId: v.string(),
+    config: v.optional(v.any()),
+    plan: v.optional(v.string()),
+    progress: v.optional(v.string()),
+    tasks: v.optional(v.any()),
+    memoryEntries: v.optional(v.array(v.object({
+      date: v.string(),
+      iteration: v.number(),
+      type: v.string(),
+      input: v.string(),
+      sessions: v.number(),
+      prsMerged: v.string(),
+      filesChanged: v.string(),
+      learning: v.string(),
+    }))),
+    sessionBudget: v.optional(v.object({
+      plan: v.string(),
+      dailyLimit: v.number(),
+      usedToday: v.number(),
+      lastReset: v.string(),
+    })),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_repo", ["repo"])
+    .index("by_threadId", ["threadId"]),
+
   julesSessions: defineTable({
     threadId: v.string(),
     julesSessionId: v.string(),
