@@ -45,6 +45,8 @@ export const message_jules = createTool({
   },
 });
 
+export { dispatch_greenfield, dispatch_iterative, merge_prs } from "./workyardTools";
+
 export const approve_plan = createTool({
   description:
     "Approves the currently pending plan in a Jules session, allowing the agent to proceed with execution.",
