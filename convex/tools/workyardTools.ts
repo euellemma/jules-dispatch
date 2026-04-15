@@ -144,7 +144,28 @@ export const merge_prs = createTool({
     sessionIds: z.array(z.string()).describe("Jules session IDs whose PRs to merge"),
     branch: z.string().default("main").describe("Base branch to merge into"),
   }),
-  execute: async () => {
-    return "Merge workflow not yet implemented. This tool will be functional after Phase 3.";
+  execute: async (ctx, args) => {
+    if (!ctx.threadId) {
+      throw new Error("Tool must be called within a thread context.");
+    }
+    try {
+      const res = await ctx.runAction(internal.workyard.merger.sequentialMerge, {
+        threadId: ctx.threadId,
+        repo: args.repo,
+        sessionIds: args.sessionIds,
+        branch: args.branch,
+      });
+
+      if (!res.success) {
+        if (res.conflictPr) {
+          return `Merge conflict detected on PR #${res.conflictPr} (${res.conflictUrl}). Please resolve conflicts.`;
+        }
+        return `Merge process failed: ${res.error}`;
+      }
+
+      return `Successfully merged PRs: ${res.mergedPrs.join(", ")}\nConflicts: ${res.conflicts.length > 0 ? res.conflicts.join(", ") : "None"}`;
+    } catch (error: any) {
+      return `Failed to merge PRs: ${error.message || String(error)}`;
+    }
   },
 });
