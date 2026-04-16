@@ -137,7 +137,7 @@ export const dispatchImplementationSessions = internalAction({
       const sessionRes = await ctx.runAction(internal.sessions.actions.createSession, {
         threadId: args.threadId,
         prompt,
-        title: task.title || \`Task: \${task.id}\`,
+        title: task.title || `Task: ${task.id}`,
         githubRepo: args.repo,
         baseBranch: args.branch,
         requireApproval,

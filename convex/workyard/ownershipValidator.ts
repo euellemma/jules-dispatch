@@ -6,9 +6,12 @@ export interface OwnershipConflict {
 
 export interface Task {
   id: string;
+  title?: string;
   files: string[];
   new_files: string[];
   test_files: string[];
+  risk?: "low" | "medium" | "high";
+  prompt?: string;
 }
 
 export function validateOwnership(tasks: Task[]): OwnershipConflict[] {
@@ -88,20 +91,32 @@ export function mergeConflictingTasks(tasks: Task[], conflicts: OwnershipConflic
       const mergedNewFiles = new Set<string>();
       const mergedTestFiles = new Set<string>();
 
+      const mergedTitles: string[] = [];
+      const mergedPrompts: string[] = [];
+      const risks: string[] = [];
+
       for (const taskId of group) {
         const t = tasksById.get(taskId);
         if (t) {
           t.files.forEach((f) => mergedFiles.add(f));
           t.new_files.forEach((f) => mergedNewFiles.add(f));
           t.test_files.forEach((f) => mergedTestFiles.add(f));
+          if (t.title) mergedTitles.push(t.title);
+          if (t.prompt) mergedPrompts.push(t.prompt);
+          if (t.risk) risks.push(t.risk);
         }
       }
 
+      const highestRisk = (risks.includes("high") ? "high" : risks.includes("medium") ? "medium" : "low") as "low" | "medium" | "high";
+
       mergedTasks.push({
         id: mergedId,
+        title: mergedTitles.join(" + "),
         files: Array.from(mergedFiles),
         new_files: Array.from(mergedNewFiles),
         test_files: Array.from(mergedTestFiles),
+        risk: highestRisk,
+        prompt: mergedPrompts.join("\n\n---\n\n"),
       });
     }
   }
