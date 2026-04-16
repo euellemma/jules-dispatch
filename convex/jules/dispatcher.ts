@@ -20,18 +20,9 @@ export const dispatchPlannerSession = internalAction({
     isGreenfield: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const project = await ctx.runQuery(internal.projects.db.getProjectByRepo, {
-      repo: args.repo,
-    });
-
     let memory = "";
-    if (project && project.memoryEntries) {
-      memory = project.memoryEntries
-        .map((e) => `[${e.date} Iteration ${e.iteration}] ${e.type}: ${e.learning}`)
-        .join("\n");
-    }
 
-    const plan = project?.plan || "";
+    const plan = "";
 
     const prompt = planSessionPrompt({
       repo: args.repo,
@@ -56,22 +47,7 @@ export const dispatchPlannerSession = internalAction({
       throw new Error(`Failed to create planner session: ${sessionRes.error}`);
     }
 
-    let projectId;
-    if (!project) {
-      projectId = await ctx.runMutation(internal.projects.db.initProject, {
-        threadId: args.threadId,
-        repo: args.repo,
-      });
-    } else {
-      projectId = project._id;
-    }
-
-    await ctx.runMutation(internal.projects.db.updateSessionBudget, {
-      projectId,
-      delta: 1,
-    });
-
-    return { sessionId: sessionRes.id, projectId };
+    return { sessionId: sessionRes.id };
   },
 });
 
@@ -106,18 +82,10 @@ export const dispatchImplementationSessions = internalAction({
       tasksToDispatch = mergeConflictingTasks(tasksToDispatch, couplingConflicts);
     }
 
-    const project = await ctx.runQuery(internal.projects.db.getProjectByRepo, {
-      repo: args.repo,
-    });
-    const maxParallel = project?.config?.max_parallel_sessions ?? 5;
-    const requireApproval = project?.config?.require_plan_approval ?? false;
+    const maxParallel = 5;
+    const requireApproval = false;
 
     let memory = "";
-    if (project && project.memoryEntries) {
-      memory = project.memoryEntries
-        .map((e) => `[${e.date} Iteration ${e.iteration}] ${e.type}: ${e.learning}`)
-        .join("\n");
-    }
 
     const sessionIds: string[] = [];
     const dispatchLimit = Math.min(tasksToDispatch.length, maxParallel);
@@ -149,13 +117,6 @@ export const dispatchImplementationSessions = internalAction({
       }
     }
 
-    if (project && sessionIds.length > 0) {
-      await ctx.runMutation(internal.projects.db.updateSessionBudget, {
-        projectId: project._id,
-        delta: sessionIds.length,
-      });
-    }
-
     return {
       sessionIds,
       conflicts: [...ownershipConflicts, ...couplingConflicts],
@@ -172,16 +133,7 @@ export const dispatchResearchSession = internalAction({
     researchQuestion: v.string(),
   },
   handler: async (ctx, args) => {
-    const project = await ctx.runQuery(internal.projects.db.getProjectByRepo, {
-      repo: args.repo,
-    });
-
     let memory = "";
-    if (project && project.memoryEntries) {
-      memory = project.memoryEntries
-        .map((e) => `[${e.date} Iteration ${e.iteration}] ${e.type}: ${e.learning}`)
-        .join("\n");
-    }
 
     const prompt = researchSessionPrompt({
       repo: args.repo,
@@ -201,13 +153,6 @@ export const dispatchResearchSession = internalAction({
 
     if (!sessionRes.success || !sessionRes.id) {
       throw new Error(`Failed to create research session: ${sessionRes.error}`);
-    }
-
-    if (project) {
-      await ctx.runMutation(internal.projects.db.updateSessionBudget, {
-        projectId: project._id,
-        delta: 1,
-      });
     }
 
     return { sessionId: sessionRes.id };

@@ -23,7 +23,7 @@ export const dispatch_greenfield = createTool({
     }
 
     try {
-      const res = await ctx.runAction(internal.workyard.dispatcher.dispatchPlannerSession, {
+      const res = await ctx.runAction(internal.jules.dispatcher.dispatchPlannerSession, {
         threadId: ctx.threadId,
         userId: ctx.userId,
         repo: args.repo,
@@ -83,7 +83,7 @@ export const dispatch_iterative = createTool({
 
     try {
       if (args.mode === "single") {
-        const res = await ctx.runAction(internal.workyard.dispatcher.dispatchPlannerSession, {
+        const res = await ctx.runAction(internal.jules.dispatcher.dispatchPlannerSession, {
           threadId: ctx.threadId,
           userId: ctx.userId,
           repo: args.repo,
@@ -95,7 +95,7 @@ export const dispatch_iterative = createTool({
       } else if (args.mode === "planner") {
         if (args.tasks && args.tasks.length > 0) {
           const res = await ctx.runAction(
-            internal.workyard.dispatcher.dispatchImplementationSessions,
+            internal.jules.dispatcher.dispatchImplementationSessions,
             {
               threadId: ctx.threadId,
               userId: ctx.userId,
@@ -108,7 +108,7 @@ export const dispatch_iterative = createTool({
             ", "
           )}\nConflicts (if any): ${JSON.stringify(res.conflicts)}`;
         } else {
-          const res = await ctx.runAction(internal.workyard.dispatcher.dispatchPlannerSession, {
+          const res = await ctx.runAction(internal.jules.dispatcher.dispatchPlannerSession, {
             threadId: ctx.threadId,
             userId: ctx.userId,
             repo: args.repo,
@@ -119,7 +119,7 @@ export const dispatch_iterative = createTool({
           return `Successfully dispatched planner session.\nSession ID: ${res.sessionId}`;
         }
       } else if (args.mode === "research") {
-        const res = await ctx.runAction(internal.workyard.dispatcher.dispatchResearchSession, {
+        const res = await ctx.runAction(internal.jules.dispatcher.dispatchResearchSession, {
           threadId: ctx.threadId,
           userId: ctx.userId,
           repo: args.repo,
@@ -149,7 +149,7 @@ export const merge_prs = createTool({
       throw new Error("Tool must be called within a thread context.");
     }
     try {
-      const res = await ctx.runAction(internal.workyard.merger.sequentialMerge, {
+      const res = await ctx.runAction(internal.jules.merger.sequentialMerge, {
         threadId: ctx.threadId,
         repo: args.repo,
         sessionIds: args.sessionIds,
