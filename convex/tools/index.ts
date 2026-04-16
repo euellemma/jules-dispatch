@@ -45,7 +45,7 @@ export const message_jules = createTool({
   },
 });
 
-export { dispatch_greenfield, dispatch_iterative, merge_prs } from "./workyardTools";
+export { dispatch_greenfield, dispatch_iterative, merge_prs } from "./julesTools";
 
 export const approve_plan = createTool({
   description:
